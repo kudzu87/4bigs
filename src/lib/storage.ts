@@ -69,6 +69,7 @@ export function createEmptyHand(): Hand {
     ],
     preflopAction: "",
     preflopAmount: "",
+    preflopActions: [],
     villainCount: 1,
     villains: [],
     boardFlop: [

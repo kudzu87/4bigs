@@ -31,7 +31,9 @@ export function getVillainPositionMode(
     return "later-only";
   }
   if (
-    (heroPreflopAction === "Call" || heroPreflopAction === "3-Bet") &&
+    (heroPreflopAction === "Call" ||
+      heroPreflopAction === "3-Bet" ||
+      heroPreflopAction === "Raise") &&
     villainCount === 1
   ) {
     return "earlier-only";

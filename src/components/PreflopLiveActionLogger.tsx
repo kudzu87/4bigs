@@ -1,74 +1,67 @@
 "use client";
 
 import { playHaptic } from "@/lib/haptics";
-import { getValidPostflopActions } from "@/lib/betting-round";
+import { getValidPreflopActions } from "@/lib/betting-round";
 import type { Hand, StreetState } from "@/lib/types";
 
-export type PostflopLiveActionLoggerProps = {
+const OPEN_SIZINGS = ["Small", "Standard", "Large", "All-In", "custom"];
+const RAISE_SIZINGS = ["3x", "4x", "pot", "all-in", "custom"];
+
+type PreflopLiveActionLoggerProps = {
   streetState: StreetState;
   setStreetState: React.Dispatch<React.SetStateAction<StreetState>>;
   handlePlayerAction: (actionType: string, sizing?: string) => void;
   skipToOutcome: () => void;
-  getSuitColor: (suit: string) => string;
   hand: Hand;
 };
 
-export function PostflopLiveActionLogger({
+export function PreflopLiveActionLogger({
   streetState,
   setStreetState,
   handlePlayerAction,
   skipToOutcome,
-  getSuitColor,
   hand,
-}: PostflopLiveActionLoggerProps) {
+}: PreflopLiveActionLoggerProps) {
   const currentActor = streetState.players[streetState.currentActorIndex];
   const hasBetOccurred = streetState.highestBet > 0;
   const validActions = currentActor
-    ? getValidPostflopActions(currentActor, streetState.highestBet)
+    ? getValidPreflopActions(currentActor, streetState.highestBet)
     : [];
-
-  const BET_SIZINGS = ["Small", "1/3", "1/2", "3/4", "pot", "all-in", "custom"];
-  const RAISE_SIZINGS = ["3x", "4x", "pot", "all-in", "custom"];
 
   if (!currentActor) {
     return (
       <div className="flex items-center justify-center p-8 text-xs text-slate-500">
-        Initializing active players...
+        Initializing preflop action…
       </div>
     );
   }
 
+  const showLimp = validActions.includes("Limp");
   const showCheck = validActions.includes("Check");
   const showBet = validActions.includes("Bet");
   const showFold = validActions.includes("Fold");
   const showCall = validActions.includes("Call");
   const showRaise = validActions.includes("Raise");
 
+  const openAction = hasBetOccurred ? "Raise" : "Bet";
+  const sizingOptions = streetState.currentActionPending === "Bet" ? OPEN_SIZINGS : RAISE_SIZINGS;
+
   return (
     <div className="space-y-4 flex-1 flex flex-col justify-between animate-fadeIn">
       <div className="flex items-center justify-between bg-slate-950/60 p-2.5 rounded-2xl border border-slate-900">
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Board:</span>
-          <div className="flex gap-1">
-            {hand.boardFlop?.map((c, i) => c.rank && (
-              <span key={`f-${i}`} className="bg-slate-900 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold">
-                {c.rank}<span className={getSuitColor(c.suit)}>{c.suit}</span>
+          <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Hole:</span>
+          <div className="flex gap-1 font-mono text-[10px]">
+            {hand.heroCards.map((c, i) => (
+              <span key={i} className="bg-slate-900 px-1.5 py-0.5 rounded font-bold">
+                {c.rank}
+                {c.suit}
               </span>
             ))}
-            {streetState.street !== "flop" && hand.boardTurn?.rank && (
-              <span className="bg-slate-900 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold">
-                {hand.boardTurn.rank}<span className={getSuitColor(hand.boardTurn.suit)}>{hand.boardTurn.suit}</span>
-              </span>
-            )}
-            {streetState.street === "river" && hand.boardRiver?.rank && (
-              <span className="bg-slate-900 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold">
-                {hand.boardRiver.rank}<span className={getSuitColor(hand.boardRiver.suit)}>{hand.boardRiver.suit}</span>
-              </span>
-            )}
           </div>
         </div>
         <span className="text-[10px] text-poker-accent font-black uppercase tracking-widest">
-          {streetState.street} street
+          Preflop
         </span>
       </div>
 
@@ -93,34 +86,6 @@ export function PostflopLiveActionLogger({
       <div className="space-y-3">
         {!streetState.showBetSizes ? (
           <div className="grid grid-cols-2 gap-2">
-            {showCheck && (
-              <button
-                type="button"
-                onClick={() => {
-                  playHaptic("click");
-                  handlePlayerAction("Check");
-                }}
-                className="py-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded-xl font-bold text-sm transition-all shadow-md"
-              >
-                Check
-              </button>
-            )}
-            {showBet && (
-              <button
-                type="button"
-                onClick={() => {
-                  playHaptic("click");
-                  setStreetState((prev) => ({
-                    ...prev,
-                    showBetSizes: true,
-                    currentActionPending: "Bet",
-                  }));
-                }}
-                className={`py-3 bg-poker-primary hover:bg-emerald-400 text-slate-950 rounded-xl font-black text-sm transition-all shadow-md glow-green ${showCheck ? "" : "col-span-2"}`}
-              >
-                Bet
-              </button>
-            )}
             {showFold && (
               <button
                 type="button"
@@ -131,6 +96,30 @@ export function PostflopLiveActionLogger({
                 className="py-3 bg-rose-950/40 border border-rose-900/60 hover:bg-rose-900/20 text-rose-400 rounded-xl font-bold text-sm transition-all"
               >
                 Fold
+              </button>
+            )}
+            {showLimp && (
+              <button
+                type="button"
+                onClick={() => {
+                  playHaptic("click");
+                  handlePlayerAction("Limp");
+                }}
+                className="py-3 bg-sky-950/40 border border-sky-900/60 hover:bg-sky-900/20 text-sky-400 rounded-xl font-bold text-sm transition-all"
+              >
+                Limp
+              </button>
+            )}
+            {showCheck && (
+              <button
+                type="button"
+                onClick={() => {
+                  playHaptic("click");
+                  handlePlayerAction("Check");
+                }}
+                className="py-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded-xl font-bold text-sm transition-all"
+              >
+                Check
               </button>
             )}
             {showCall && (
@@ -145,7 +134,23 @@ export function PostflopLiveActionLogger({
                 Call
               </button>
             )}
-            {showRaise && (
+            {showBet && (
+              <button
+                type="button"
+                onClick={() => {
+                  playHaptic("click");
+                  setStreetState((prev) => ({
+                    ...prev,
+                    showBetSizes: true,
+                    currentActionPending: openAction,
+                  }));
+                }}
+                className={`py-3 bg-poker-primary hover:bg-emerald-400 text-slate-950 rounded-xl font-black text-sm transition-all shadow-md glow-green ${!showFold && !showCall && !showLimp && !showCheck ? "col-span-2" : ""}`}
+              >
+                {hasBetOccurred ? "Raise" : "Bet"}
+              </button>
+            )}
+            {showRaise && !showBet && (
               <button
                 type="button"
                 onClick={() => {
@@ -183,7 +188,7 @@ export function PostflopLiveActionLogger({
               </button>
             </div>
             <div className="grid grid-cols-4 gap-1.5">
-              {(streetState.currentActionPending === "Bet" ? BET_SIZINGS : RAISE_SIZINGS).map((sz) => (
+              {sizingOptions.map((sz) => (
                 <button
                   key={sz}
                   type="button"
@@ -208,14 +213,16 @@ export function PostflopLiveActionLogger({
               <div className="flex gap-2 pt-1">
                 <input
                   type="text"
-                  placeholder="Custom amount (e.g. 15 BB)"
-                  id="customSizingInput"
+                  placeholder="e.g. 15 BB"
+                  id="preflopCustomSizingInput"
                   className="flex-1 p-3 rounded-xl bg-slate-900 border border-slate-900 focus:border-poker-primary text-white text-xs focus:outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => {
-                    const el = document.getElementById("customSizingInput") as HTMLInputElement | null;
+                    const el = document.getElementById(
+                      "preflopCustomSizingInput"
+                    ) as HTMLInputElement | null;
                     if (el?.value) {
                       playHaptic("success");
                       handlePlayerAction(streetState.currentActionPending, el.value);
@@ -233,11 +240,11 @@ export function PostflopLiveActionLogger({
 
       <div className="bg-slate-950/50 p-3 rounded-2xl border border-slate-900 space-y-2">
         <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider block">
-          Action Logs Timeline
+          Preflop Action Log
         </span>
         {streetState.history.length === 0 ? (
           <p className="text-[10px] text-slate-600 italic">
-            No actions logged yet. First actor to speak is {currentActor.label} ({currentActor.position}).
+            Action starts with {currentActor.label} ({currentActor.position}).
           </p>
         ) : (
           <div className="space-y-1.5 max-h-24 overflow-y-auto font-mono text-[10px]">
@@ -254,9 +261,9 @@ export function PostflopLiveActionLogger({
       <button
         type="button"
         onClick={skipToOutcome}
-        className="w-full py-2 bg-slate-900 hover:bg-slate-850 text-[10px] text-slate-500 hover:text-slate-300 font-bold uppercase tracking-widest rounded-xl transition-all"
+        className="w-full py-2 bg-slate-900 text-[10px] text-slate-500 hover:text-slate-300 font-bold uppercase tracking-widest rounded-xl transition-all"
       >
-        Skip Directly to outcome
+        Skip to outcome
       </button>
     </div>
   );

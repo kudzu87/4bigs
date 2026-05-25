@@ -3,6 +3,7 @@
 import { Pencil, PlusCircle, ShieldAlert, Trash2 } from "lucide-react";
 import { playHaptic } from "@/lib/haptics";
 import type { Hand, Session } from "@/lib/types";
+import { CopySessionNotesButton } from "./CopySessionNotesButton";
 
 type ActiveSessionViewProps = {
   session: Session;
@@ -60,10 +61,12 @@ export function ActiveSessionView({
             </p>
           </div>
         </div>
+
+        <CopySessionNotesButton session={session} />
       </div>
 
       <p className="text-[10px] text-slate-500 text-center px-2">
-        Hands save automatically on this device.
+        Hands save automatically on this device. Paste copied notes into Apple Notes, Notion, etc.
       </p>
 
       <button
@@ -149,13 +152,19 @@ export function ActiveSessionView({
                   </div>
                 </div>
 
-                {(hand.flopActions?.length > 0 ||
+                {(hand.preflopActions?.length > 0 ||
+                  hand.flopActions?.length > 0 ||
                   hand.turnActions?.length > 0 ||
                   hand.riverActions?.length > 0) && (
                   <div className="bg-slate-950/50 p-2.5 rounded-lg text-[10px] space-y-1 border border-slate-900 max-h-32 overflow-y-auto font-mono">
                     <p className="text-[9px] text-slate-500 font-bold tracking-wider uppercase">
-                      Live Postflop Actions
+                      Action Log
                     </p>
+                    {hand.preflopActions?.map((act, i) => (
+                      <div key={`p-${i}`} className="text-slate-300 flex items-center gap-1">
+                        <span className="text-sky-400">Preflop:</span> {act}
+                      </div>
+                    ))}
                     {hand.flopActions?.map((act, i) => (
                       <div key={`f-${i}`} className="text-slate-300 flex items-center gap-1">
                         <span className="text-emerald-500">Flop:</span> {act}

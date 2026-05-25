@@ -2,6 +2,7 @@
 
 import { Archive, Play, Trash2 } from "lucide-react";
 import type { Session } from "@/lib/types";
+import { CopySessionNotesButton } from "./CopySessionNotesButton";
 
 type HomeViewProps = {
   pastSessions: Session[];
@@ -96,6 +97,7 @@ export function HomeView({ pastSessions, onStartClick, onDeleteSession }: HomeVi
                           ? `+$${session.netAmount}`
                           : `-$${Math.abs(session.netAmount)}`}
                       </span>
+                      <CopySessionNotesButton session={session} variant="compact" />
                       <button
                         type="button"
                         onClick={() => onDeleteSession(session.id)}

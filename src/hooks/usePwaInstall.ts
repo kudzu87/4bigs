@@ -4,14 +4,15 @@ import { useCallback, useEffect, useState } from "react";
 import { playHaptic } from "@/lib/haptics";
 import {
   type BeforeInstallPromptEvent,
-  isIosSafari,
+  detectInstallPlatform,
+  type InstallPlatform,
   isStandaloneMode,
 } from "@/lib/pwa";
 
 export function usePwaInstall() {
   const [showBanner, setShowBanner] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isIos, setIsIos] = useState(false);
+  const [platform, setPlatform] = useState<InstallPlatform>("unknown");
   const [isInstalled, setIsInstalled] = useState(false);
 
   useEffect(() => {
@@ -20,7 +21,7 @@ export function usePwaInstall() {
       return;
     }
 
-    setIsIos(isIosSafari());
+    setPlatform(detectInstallPlatform());
 
     const timer = setTimeout(() => setShowBanner(true), 3000);
 
@@ -57,7 +58,9 @@ export function usePwaInstall() {
   return {
     showBanner,
     dismissBanner,
-    isIos,
+    platform,
+    /** @deprecated prefer platform */
+    isIos: platform === "ios-safari" || platform === "ios-other",
     isInstalled,
     canNativeInstall: !!deferredPrompt,
     triggerNativeInstall,

@@ -18,10 +18,12 @@ export type Hand = {
   heroCards: Card[];
   preflopAction: string;
   preflopAmount: string;
+  preflopActions: string[];
   villainCount: number;
   villains: Villain[];
   boardFlop: Card[];
   flopActions: string[];
+  preflopFolded?: boolean;
   boardTurn: Card;
   turnActions: string[];
   boardRiver: Card;
@@ -73,7 +75,7 @@ export type StreetPlayer = {
 };
 
 export type StreetState = {
-  street: "flop" | "turn" | "river";
+  street: "preflop" | "flop" | "turn" | "river";
   players: StreetPlayer[];
   history: string[];
   currentActorIndex: number;

@@ -39,7 +39,7 @@ export function FourBigsApp() {
   const {
     showBanner,
     dismissBanner,
-    isIos,
+    platform,
     isInstalled,
     canNativeInstall,
     triggerNativeInstall,
@@ -249,7 +249,7 @@ export function FourBigsApp() {
   };
 
   const handleInstallContinue = async () => {
-    if (canNativeInstall && !isIos) {
+    if (canNativeInstall) {
       await triggerNativeInstall();
     } else {
       playHaptic("success");
@@ -370,7 +370,7 @@ export function FourBigsApp() {
 
         {step === "INSTALL_GUIDE" && (
           <InstallGuideView
-            isIos={isIos}
+            platform={platform}
             canNativeInstall={canNativeInstall}
             onContinue={handleInstallContinue}
             onBack={closeInstallGuide}
@@ -381,6 +381,7 @@ export function FourBigsApp() {
       {step !== "INSTALL_GUIDE" && !isInstalled && (
         <InstallPrompt
           visible={showBanner}
+          platform={platform}
           onInstallClick={openInstallGuide}
           onDismiss={dismissBanner}
         />

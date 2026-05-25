@@ -3,12 +3,17 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft, XCircle } from "lucide-react";
 import {
-  ACTIONS,
   PROFILE_TAGS,
   RANKS,
   REVIEW_TAGS,
   SUITS,
 } from "@/lib/constants";
+import {
+  buildPreflopRoster,
+  parseHeroPreflopLine,
+  processStreetAction,
+  syncVillainActionsFromLog,
+} from "@/lib/betting-round";
 import { playHaptic } from "@/lib/haptics";
 import {
   buildInitialVillains,
@@ -20,6 +25,7 @@ import {
 } from "@/lib/positions";
 import type { Hand, StreetState } from "@/lib/types";
 import { PostflopLiveActionLogger } from "./PostflopLiveActionLogger";
+import { PreflopLiveActionLogger } from "./PreflopLiveActionLogger";
 
 export type HandWizardProps = {
   initialHand: Hand;
@@ -55,7 +61,7 @@ export function HandWizard({
   }, [hand, onDraftSync]);
 
   useEffect(() => {
-    if (wizardStep !== 9 || hand.villainCount < 1) return;
+    if (wizardStep !== 8 || hand.villainCount < 1) return;
     const tablePositions = getPositionsForSize(tableSize);
     const sanitized = sanitizeVillainPositions(
       hand.villains,
@@ -71,6 +77,13 @@ export function HandWizard({
       setHand((prev) => ({ ...prev, villains: sanitized }));
     }
   }, [wizardStep, hand.villainCount, hand.preflopAction, hand.heroPositionIndex, tableSize]);
+
+  useEffect(() => {
+    if (wizardStep !== 9 || hand.villainCount < 1) return;
+    if (streetState.street === "preflop" && streetState.players.length > 0) return;
+    initPreflopState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wizardStep, hand.villainCount]);
 
   const [streetState, setStreetState] = useState<StreetState>({
     street: "flop",
@@ -134,12 +147,32 @@ export function HandWizard({
                 setWizardStep(18); // Hand Outcome screen is now Step 18 due to Hero Card Split Screen
             };
 
+            const initPreflopState = () => {
+                const roster = buildPreflopRoster(
+                    positions,
+                    hand.heroPosition,
+                    hand.heroPositionIndex,
+                    hand.villains,
+                    hand.villainCount
+                );
+                setStreetState({
+                    street: "preflop",
+                    players: roster,
+                    history: [],
+                    currentActorIndex: 0,
+                    highestBet: 0,
+                    lastRaiserId: null,
+                    showBetSizes: false,
+                    currentActionPending: "",
+                });
+            };
+
             const initStreetState = (streetName: "flop" | "turn" | "river") => {
                 // Determine who is still active at the start of this street
                 let roster = [];
 
                 // 1. Hero
-                const heroFoldedPreflop = hand.preflopAction === 'Fold';
+                const heroFoldedPreflop = hand.preflopFolded || hand.preflopAction === 'Fold';
                 const heroFoldedFlop = streetName !== 'flop' && hand.flopFolded;
                 const heroFoldedTurn = streetName === 'river' && hand.turnFolded;
                 
@@ -190,135 +223,108 @@ export function HandWizard({
 
             const handlePlayerAction = (actionType: string, sizing = "") => {
                 const currentActor = streetState.players[streetState.currentActorIndex];
-                const updatedPlayers = streetState.players.map((p, idx) => {
-                    if (idx === streetState.currentActorIndex) {
-                        let finalContribution = p.contribution;
-                        let lastAct = actionType;
-                        
-                        if (actionType === 'Check') {
-                            lastAct = 'Check';
-                        } else if (actionType === 'Bet') {
-                            lastAct = 'Bet';
-                            finalContribution = 1; // Simple bet index matching
-                        } else if (actionType === 'Call') {
-                            lastAct = 'Call';
-                            finalContribution = streetState.highestBet;
-                        } else if (actionType === 'Raise') {
-                            lastAct = 'Raise';
-                            finalContribution = streetState.highestBet + 1;
-                        }
+                const result = processStreetAction(streetState, actionType, sizing);
 
-                        return {
-                            ...p,
-                            lastAction: lastAct,
-                            contribution: finalContribution,
-                            actedThisRound: true,
-                            folded: actionType === 'Fold' ? true : p.folded
-                        };
-                    }
-                    return p;
-                });
-
-                // Compute overall histories & action details
-                let actionText = `${currentActor.label} (${currentActor.position}) ${actionType}`;
-                if (sizing) {
-                    actionText += ` [${sizing}]`;
-                }
-                const updatedHistory = [...streetState.history, actionText];
-
-                // Calculate updated state limits
-                let nextHighestBet = streetState.highestBet;
-                let nextLastRaiserId = streetState.lastRaiserId;
-
-                if (actionType === 'Bet') {
-                    nextHighestBet = 1;
-                    nextLastRaiserId = currentActor.id;
-                } else if (actionType === 'Raise') {
-                    nextHighestBet = streetState.highestBet + 1;
-                    nextLastRaiserId = currentActor.id;
-                } else if (actionType === 'Fold') {
-                    // Update main hand fold configurations globally
+                if (actionType === "Fold") {
                     if (currentActor.isHero) {
-                        setHand(prev => ({ ...prev, [`${streetState.street}Folded`]: true }));
+                        if (streetState.street === "preflop") {
+                            setHand((prev) => ({
+                                ...prev,
+                                preflopFolded: true,
+                                preflopAction: "Fold",
+                            }));
+                        } else {
+                            setHand((prev) => ({
+                                ...prev,
+                                [`${streetState.street}Folded`]: true,
+                            }));
+                        }
                     } else {
-                        const vIndex = parseInt(currentActor.id.replace('villain_', ''));
+                        const vIndex = parseInt(currentActor.id.replace("villain_", ""), 10);
                         const updatedVillains = [...hand.villains];
-                        updatedVillains[vIndex][`${streetState.street}Folded`] = true;
-                        setHand(prev => ({ ...prev, villains: updatedVillains }));
+                        if (streetState.street === "preflop") {
+                            if (updatedVillains[vIndex]) {
+                                updatedVillains[vIndex] = {
+                                    ...updatedVillains[vIndex],
+                                    action: "Fold",
+                                };
+                            }
+                            setHand((prev) => ({ ...prev, villains: updatedVillains }));
+                        } else if (updatedVillains[vIndex]) {
+                            updatedVillains[vIndex] = {
+                                ...updatedVillains[vIndex],
+                                [`${streetState.street}Folded`]: true,
+                            };
+                            setHand((prev) => ({ ...prev, villains: updatedVillains }));
+                        }
                     }
                 }
 
-                // Check remaining active players who are not folded
-                const activeRemaining = updatedPlayers.filter(p => !p.folded);
+                if (result.activeCount <= 1 || result.roundComplete) {
+                    playHaptic("success");
 
-                // Early check: if only 1 player remains in the hand, skip directly to the Outcomes result screen (Step 18)
-                if (activeRemaining.length <= 1) {
-                    playHaptic('success');
-                    setHand(prev => ({
+                    if (streetState.street === "preflop") {
+                        const heroLine = parseHeroPreflopLine(result.history);
+                        const syncedVillains = syncVillainActionsFromLog(
+                            hand.villains,
+                            result.history,
+                            hand.villainCount
+                        );
+                        const sanitized = sanitizeVillainPositions(
+                            syncedVillains,
+                            positions,
+                            hand.heroPositionIndex,
+                            heroLine || hand.preflopAction,
+                            hand.villainCount
+                        );
+                        const heroFolded =
+                            heroLine === "Fold" || hand.preflopFolded;
+                        setHand((prev) => ({
+                            ...prev,
+                            preflopActions: result.history,
+                            preflopAction: heroLine || prev.preflopAction,
+                            villains: sanitized,
+                            preflopFolded: heroFolded || prev.preflopFolded,
+                        }));
+                        setTimeout(() => {
+                            if (result.activeCount <= 1 || heroFolded) {
+                                setWizardStep(18);
+                            } else {
+                                setWizardStep(10);
+                            }
+                        }, 400);
+                        return;
+                    }
+
+                    setHand((prev) => ({
                         ...prev,
-                        [`${streetState.street}Actions`]: updatedHistory
+                        [`${streetState.street}Actions`]: result.history,
                     }));
                     setTimeout(() => {
-                        setWizardStep(18); // Outcomes step (was 17)
+                        if (result.activeCount <= 1) {
+                            setWizardStep(18);
+                        } else if (streetState.street === "flop") {
+                            setWizardStep(14);
+                        } else if (streetState.street === "turn") {
+                            setWizardStep(16);
+                        } else {
+                            setWizardStep(18);
+                        }
                     }, 400);
                     return;
                 }
 
-                // Find next actor's index
-                let nextIdx = (streetState.currentActorIndex + 1) % updatedPlayers.length;
-                while (updatedPlayers[nextIdx].folded) {
-                    nextIdx = (nextIdx + 1) % updatedPlayers.length;
-                }
-
-                // Determine if betting round is fully satisfied:
-                let roundComplete = false;
-
-                if (nextHighestBet === 0) {
-                    // Unopened street: satisfied if everyone active has checked once
-                    const allActed = updatedPlayers.filter(p => !p.folded).every(p => p.actedThisRound);
-                    if (allActed) {
-                        roundComplete = true;
-                    }
-                } else {
-                    // Opened street: satisfied if the next actor's contribution matches the highest bet and they have already acted
-                    const nextActor = updatedPlayers[nextIdx];
-                    if (nextActor.contribution === nextHighestBet && nextActor.actedThisRound) {
-                        roundComplete = true;
-                    }
-                }
-
-                if (roundComplete) {
-                    playHaptic('success');
-                    // Save actions log directly to the hand state
-                    const savedHand = {
-                        ...hand,
-                        [`${streetState.street}Actions`]: updatedHistory
-                    };
-                    setHand(savedHand);
-
-                    // Move to next stage step in order
-                    setTimeout(() => {
-                        if (streetState.street === 'flop') {
-                            setWizardStep(14); // Turn Board Card Setup (was 13)
-                        } else if (streetState.street === 'turn') {
-                            setWizardStep(16); // River Board Card Setup (was 15)
-                        } else if (streetState.street === 'river') {
-                            setWizardStep(18); // Outcomes screen (was 17)
-                        }
-                    }, 400);
-                } else {
-                    // Continue the active betting street round
-                    setStreetState(prev => ({
-                        ...prev,
-                        players: updatedPlayers,
-                        history: updatedHistory,
-                        currentActorIndex: nextIdx,
-                        highestBet: nextHighestBet,
-                        lastRaiserId: nextLastRaiserId,
-                        showBetSizes: false,
-                        currentActionPending: ''
-                    }));
-                }
+                setStreetState((prev) => ({
+                    ...prev,
+                    players: result.players,
+                    history: result.history,
+                    currentActorIndex: result.nextActorIndex,
+                    highestBet: result.highestBet,
+                    lastRaiserId: result.lastRaiserId,
+                    showBetSizes: false,
+                    currentActionPending: "",
+                    currentActionPendingCustom: false,
+                }));
             };
 
             const getStepTitle = (s: number) => {
@@ -327,9 +333,9 @@ export function HandWizard({
                     case 4: return "Step 4: Your Position";
                     case 5: return "Step 5: Hero Card 1";
                     case 6: return "Step 6: Hero Card 2";
-                    case 7: return "Step 7: Preflop Action";
-                    case 8: return "Step 8: Villain Count";
-                    case 9: return `Step 9: Villain Profile (${selectedVillainIndex + 1}/${hand.villainCount})`;
+                    case 7: return "Step 7: Villain Count";
+                    case 8: return `Step 8: Villain Profile (${selectedVillainIndex + 1}/${hand.villainCount})`;
+                    case 9: return "Step 9: Preflop Live Action";
                     case 10: return "Step 10: Flop Card 1";
                     case 11: return "Step 11: Flop Card 2";
                     case 12: return "Step 12: Flop Card 3";
@@ -415,7 +421,7 @@ export function HandWizard({
 
             const shouldShowContinueButton = () => {
                 // Returns true if step needs a bottom Continue/Save button (not auto-advanced on tap grids)
-                return ![3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17].includes(wizardStep);
+                return ![3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17].includes(wizardStep);
             };
 
             const getSuitColor = (suit: string) => {
@@ -677,94 +683,8 @@ export function HandWizard({
                             </div>
                         )}
 
-                        {/* STEP 7: Preflop Action & Sizing Selection (was Step 6) */}
+                        {/* STEP 7: Villain Count */}
                         {wizardStep === 7 && (
-                            <div className="space-y-4 flex-1 animate-fadeIn">
-                                <p className="text-xs text-slate-400 text-center">Select your preflop action details.</p>
-                                
-                                <div className="grid grid-cols-3 gap-2">
-                                    {ACTIONS.map(act => (
-                                        <button
-                                            key={act}
-                                            type="button"
-                                            onClick={() => {
-                                                playHaptic('click');
-                                                if (act === 'Fold' || act === 'Limp') {
-                                                    setHand(prev => ({
-                                                        ...prev,
-                                                        preflopAction: act,
-                                                        preflopAmount: ''
-                                                    }));
-                                                    setTimeout(() => setWizardStep(8), 150);
-                                                } else {
-                                                    updateHandState('preflopAction', act);
-                                                }
-                                            }}
-                                            className={`p-4 rounded-xl text-xs font-black transition-all ${
-                                                hand.preflopAction === act ? 'bg-poker-primary text-slate-950 glow-green' : 'bg-slate-950 border border-slate-900 text-slate-400 hover:border-slate-800'
-                                            }`}
-                                        >
-                                            {act}
-                                        </button>
-                                    ))}
-                                </div>
-
-                                {hand.preflopAction && hand.preflopAction !== 'Fold' && hand.preflopAction !== 'Limp' && (
-                                    <div className="space-y-3 pt-4 border-t border-slate-900 animate-fadeIn">
-                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest font-semibold block">Select Bet Sizing</label>
-                                        
-                                        <div className="grid grid-cols-4 gap-2">
-                                            {['Small', 'Standard', 'Large', 'All-In'].map(size => (
-                                                <button
-                                                    key={size}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        playHaptic('success');
-                                                        updateHandState('preflopAmount', size);
-                                                        setTimeout(() => setWizardStep(8), 150);
-                                                    }}
-                                                    className={`py-3 rounded-xl text-xs font-bold border transition-all ${
-                                                        hand.preflopAmount === size 
-                                                            ? 'bg-poker-accent text-slate-950 border-poker-accent glow-gold' 
-                                                            : 'bg-slate-950 border-slate-900 text-slate-400 hover:border-slate-800'
-                                                    }`}
-                                                >
-                                                    {size}
-                                                </button>
-                                            ))}
-                                        </div>
-
-                                        <div className="space-y-2 pt-2">
-                                            <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Or custom action amount</span>
-                                            <div className="flex gap-2">
-                                                <input
-                                                    type="text"
-                                                    placeholder="e.g. 15 BB or $30"
-                                                    value={['Small', 'Standard', 'Large', 'All-In'].includes(hand.preflopAmount) ? '' : hand.preflopAmount}
-                                                    onChange={(e) => updateHandState('preflopAmount', e.target.value)}
-                                                    className="flex-1 p-3 rounded-xl bg-slate-950 border border-slate-900 focus:border-poker-primary text-white text-xs focus:outline-none"
-                                                />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        if (hand.preflopAmount) {
-                                                            playHaptic('success');
-                                                            setWizardStep(8);
-                                                        }
-                                                    }}
-                                                    className="px-4 bg-poker-primary text-slate-950 rounded-xl font-bold text-xs"
-                                                >
-                                                    Confirm
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* STEP 8: Villain Count (was Step 7) */}
-                        {wizardStep === 8 && (
                             <div className="space-y-4 text-center flex-1 flex flex-col justify-center animate-fadeIn">
                                 <p className="text-xs text-slate-400">How many players remained active in this hand against you preflop?</p>
                                 
@@ -794,7 +714,7 @@ export function HandWizard({
                                                             cnt
                                                         ),
                                                     }));
-                                                    setTimeout(() => setWizardStep(9), 150);
+                                                    setTimeout(() => setWizardStep(8), 150);
                                                 }
                                             }}
                                             className={`py-4 rounded-xl text-sm font-extrabold transition-all ${
@@ -808,10 +728,10 @@ export function HandWizard({
                             </div>
                         )}
 
-                        {/* STEP 9: Villain Entries Loop (was Step 8) */}
-                        {wizardStep === 9 && (
+                        {/* STEP 8: Villain profiles (seat + tags) */}
+                        {wizardStep === 8 && (
                             <div className="space-y-4 flex-1 animate-fadeIn">
-                                <p className="text-xs text-slate-400 text-center">Specify attributes and action for Villain {selectedVillainIndex + 1}.</p>
+                                <p className="text-xs text-slate-400 text-center">Seat and tags for Villain {selectedVillainIndex + 1}. Preflop action is logged on the next step.</p>
                                 
                                 <div className="space-y-4">
                                     {/* Villain Position Selector */}
@@ -877,35 +797,6 @@ export function HandWizard({
                                         </div>
                                     </div>
 
-                                    {/* Villain Preflop Action */}
-                                    <div className="space-y-2">
-                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Preflop Action</label>
-                                        <div className="grid grid-cols-5 gap-1.5">
-                                            {['Fold', 'Call', 'Raise', '3-Bet', 'All-In'].map(act => {
-                                                const currentV = hand.villains[selectedVillainIndex] || {};
-                                                const isSelected = currentV.action === act;
-                                                return (
-                                                    <button
-                                                        key={act}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            playHaptic('click');
-                                                            const villains = [...hand.villains];
-                                                            if (!villains[selectedVillainIndex]) villains[selectedVillainIndex] = {};
-                                                            villains[selectedVillainIndex].action = act;
-                                                            updateHandState('villains', villains);
-                                                        }}
-                                                        className={`py-2 rounded-lg text-[10px] font-bold text-center transition-all ${
-                                                            isSelected ? 'bg-poker-accent text-slate-950 font-black' : 'bg-slate-950 border border-slate-900 text-slate-400 hover:bg-slate-900'
-                                                        }`}
-                                                    >
-                                                        {act}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-
                                     <div className="space-y-2">
                                         <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Villain Notes</label>
                                         <input
@@ -923,6 +814,17 @@ export function HandWizard({
                                     </div>
                                 </div>
                             </div>
+                        )}
+
+                        {/* STEP 9: Preflop live action — round must complete before flop */}
+                        {wizardStep === 9 && (
+                            <PreflopLiveActionLogger
+                                streetState={streetState}
+                                setStreetState={setStreetState}
+                                handlePlayerAction={handlePlayerAction}
+                                skipToOutcome={skipToOutcome}
+                                hand={hand}
+                            />
                         )}
 
                         {/* STEP 10: Flop Card 1 Input (was Step 9) */}
@@ -1388,7 +1290,7 @@ export function HandWizard({
                         </button>
                         
                         {shouldShowContinueButton() && (
-                            wizardStep === 9 && selectedVillainIndex < hand.villainCount - 1 ? (
+                            wizardStep === 8 && selectedVillainIndex < hand.villainCount - 1 ? (
                                 <button
                                     type="button"
                                     onClick={() => {

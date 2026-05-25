@@ -2,15 +2,51 @@
 
 import { X } from "lucide-react";
 import { playHaptic } from "@/lib/haptics";
+import type { InstallPlatform } from "@/lib/pwa";
 
 type InstallPromptProps = {
   visible: boolean;
+  platform: InstallPlatform;
   onInstallClick: () => void;
   onDismiss: () => void;
 };
 
-export function InstallPrompt({ visible, onInstallClick, onDismiss }: InstallPromptProps) {
+function getBannerCopy(platform: InstallPlatform): { title: string; body: string } {
+  switch (platform) {
+    case "desktop-chromium":
+    case "desktop-other":
+      return {
+        title: "Install 4 Bigs on this computer",
+        body: "Get a desktop shortcut and dedicated window — we'll show steps for your browser.",
+      };
+    case "ios-safari":
+    case "ios-other":
+      return {
+        title: "Use 4 Bigs on your phone",
+        body: "Add a home screen icon for full-screen logging at the table — we'll walk you through it.",
+      };
+    case "android":
+      return {
+        title: "Use 4 Bigs on your phone",
+        body: "Install for full-screen use at the table — steps matched to your Android browser.",
+      };
+    default:
+      return {
+        title: "Install 4 Bigs",
+        body: "We'll show install steps for your device and browser.",
+      };
+  }
+}
+
+export function InstallPrompt({
+  visible,
+  platform,
+  onInstallClick,
+  onDismiss,
+}: InstallPromptProps) {
   if (!visible) return null;
+
+  const { title, body } = getBannerCopy(platform);
 
   return (
     <div className="fixed bottom-4 left-4 right-4 max-w-sm mx-auto bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-2xl z-50">
@@ -20,7 +56,7 @@ export function InstallPrompt({ visible, onInstallClick, onDismiss }: InstallPro
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
-            <h4 className="font-bold text-sm">Use 4 Bigs on your phone</h4>
+            <h4 className="font-bold text-sm">{title}</h4>
             <button
               type="button"
               onClick={onDismiss}
@@ -30,9 +66,7 @@ export function InstallPrompt({ visible, onInstallClick, onDismiss }: InstallPro
               <X className="w-4 h-4" />
             </button>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Add a home screen icon for full-screen logging at the table — we&apos;ll walk you through it.
-          </p>
+          <p className="text-xs text-slate-400 mt-1">{body}</p>
           <div className="flex gap-2 mt-3">
             <button
               type="button"
