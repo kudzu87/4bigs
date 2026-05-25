@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+@theme {
+  --color-poker-bg: #090d16;
+  --color-poker-card: #131926;
+  --color-poker-card-light: #1f293d;
+  --color-poker-primary: #10b981;
+  --color-poker-accent: #f59e0b;
+}
+
+body {
+  background-color: #090d16;
+  color: #f3f4f6;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #090d16;
+}
+::-webkit-scrollbar-thumb {
+  background: #1f293d;
+  border-radius: 9999px;
+}
+
+.tap-scale:active {
+  transform: scale(0.96);
+}
+.glow-green {
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.35);
+}
+.glow-gold {
+  box-shadow: 0 0 15px rgba(245, 158, 11, 0.3);
+}
