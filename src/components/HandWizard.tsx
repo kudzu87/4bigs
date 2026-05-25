@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft, XCircle } from "lucide-react";
 import {
+  ACTIONS,
   PROFILE_TAGS,
   RANKS,
   REVIEW_TAGS,
@@ -12,6 +13,7 @@ import {
   buildPreflopRoster,
   parseHeroPreflopLine,
   processStreetAction,
+  seedPreflopFromHeroSummary,
   syncVillainActionsFromLog,
 } from "@/lib/betting-round";
 import { playHaptic } from "@/lib/haptics";
@@ -61,7 +63,7 @@ export function HandWizard({
   }, [hand, onDraftSync]);
 
   useEffect(() => {
-    if (wizardStep !== 8 || hand.villainCount < 1) return;
+    if (wizardStep !== 9 || hand.villainCount < 1) return;
     const tablePositions = getPositionsForSize(tableSize);
     const sanitized = sanitizeVillainPositions(
       hand.villains,
@@ -79,11 +81,10 @@ export function HandWizard({
   }, [wizardStep, hand.villainCount, hand.preflopAction, hand.heroPositionIndex, tableSize]);
 
   useEffect(() => {
-    if (wizardStep !== 9 || hand.villainCount < 1) return;
-    if (streetState.street === "preflop" && streetState.players.length > 0) return;
+    if (wizardStep !== 10 || hand.villainCount < 1) return;
     initPreflopState();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wizardStep, hand.villainCount]);
+  }, [wizardStep, hand.villainCount, hand.id]);
 
   const [streetState, setStreetState] = useState<StreetState>({
     street: "flop",
@@ -126,11 +127,11 @@ export function HandWizard({
                 
                 // If entering Flop actions (Step 13), Turn actions (Step 15), or River actions (Step 17)
                 // Initialize the positional bidding states
-                if (wizardStep === 12) {
+                if (wizardStep === 13) {
                     initStreetState('flop');
-                } else if (wizardStep === 14) {
+                } else if (wizardStep === 15) {
                     initStreetState('turn');
-                } else if (wizardStep === 16) {
+                } else if (wizardStep === 17) {
                     initStreetState('river');
                 }
 
@@ -144,7 +145,7 @@ export function HandWizard({
 
             const skipToOutcome = () => {
                 playHaptic('success');
-                setWizardStep(18); // Hand Outcome screen is now Step 18 due to Hero Card Split Screen
+                setWizardStep(19); // Hand Outcome
             };
 
             const initPreflopState = () => {
@@ -155,7 +156,7 @@ export function HandWizard({
                     hand.villains,
                     hand.villainCount
                 );
-                setStreetState({
+                const baseState: StreetState = {
                     street: "preflop",
                     players: roster,
                     history: [],
@@ -164,7 +165,15 @@ export function HandWizard({
                     lastRaiserId: null,
                     showBetSizes: false,
                     currentActionPending: "",
-                });
+                };
+                setStreetState(
+                    seedPreflopFromHeroSummary(
+                        baseState,
+                        hand.preflopAction,
+                        hand.preflopAmount
+                    )
+                );
+                setHand((prev) => ({ ...prev, preflopActions: [] }));
             };
 
             const initStreetState = (streetName: "flop" | "turn" | "river") => {
@@ -288,9 +297,9 @@ export function HandWizard({
                         }));
                         setTimeout(() => {
                             if (result.activeCount <= 1 || heroFolded) {
-                                setWizardStep(18);
+                                setWizardStep(19);
                             } else {
-                                setWizardStep(10);
+                                setWizardStep(11);
                             }
                         }, 400);
                         return;
@@ -302,13 +311,13 @@ export function HandWizard({
                     }));
                     setTimeout(() => {
                         if (result.activeCount <= 1) {
-                            setWizardStep(18);
+                            setWizardStep(19);
                         } else if (streetState.street === "flop") {
-                            setWizardStep(14);
+                            setWizardStep(15);
                         } else if (streetState.street === "turn") {
-                            setWizardStep(16);
+                            setWizardStep(17);
                         } else {
-                            setWizardStep(18);
+                            setWizardStep(19);
                         }
                     }, 400);
                     return;
@@ -333,19 +342,20 @@ export function HandWizard({
                     case 4: return "Step 4: Your Position";
                     case 5: return "Step 5: Hero Card 1";
                     case 6: return "Step 6: Hero Card 2";
-                    case 7: return "Step 7: Villain Count";
-                    case 8: return `Step 8: Villain Profile (${selectedVillainIndex + 1}/${hand.villainCount})`;
-                    case 9: return "Step 9: Preflop Live Action";
-                    case 10: return "Step 10: Flop Card 1";
-                    case 11: return "Step 11: Flop Card 2";
-                    case 12: return "Step 12: Flop Card 3";
-                    case 13: return "Step 13: Flop Live Action";
-                    case 14: return "Step 14: Turn Board Card";
-                    case 15: return "Step 15: Turn Live Action";
-                    case 16: return "Step 16: River Board Card";
-                    case 17: return "Step 17: River Live Action";
-                    case 18: return "Step 18: Hand Outcome";
-                    case 19: return "Step 19: Notes & Analysis";
+                    case 7: return "Step 7: Hero Preflop Action";
+                    case 8: return "Step 8: Villain Count";
+                    case 9: return `Step 9: Villain Profile (${selectedVillainIndex + 1}/${hand.villainCount})`;
+                    case 10: return "Step 10: Preflop Live Action";
+                    case 11: return "Step 11: Flop Card 1";
+                    case 12: return "Step 12: Flop Card 2";
+                    case 13: return "Step 13: Flop Card 3";
+                    case 14: return "Step 14: Flop Live Action";
+                    case 15: return "Step 15: Turn Board Card";
+                    case 16: return "Step 16: Turn Live Action";
+                    case 17: return "Step 17: River Board Card";
+                    case 18: return "Step 18: River Live Action";
+                    case 19: return "Step 19: Hand Outcome";
+                    case 20: return "Step 20: Notes & Analysis";
                     default: return "Configure Hand";
                 }
             };
@@ -396,7 +406,7 @@ export function HandWizard({
                     if (next.boardTurn.rank && next.boardTurn.suit) {
                         setTimeout(() => {
                             initStreetState('turn');
-                            setWizardStep(15); // Turn Live Action (was 14)
+                            setWizardStep(16); // Turn Live Action
                         }, 250);
                     }
                     return next;
@@ -412,7 +422,7 @@ export function HandWizard({
                     if (next.boardRiver.rank && next.boardRiver.suit) {
                         setTimeout(() => {
                             initStreetState('river');
-                            setWizardStep(17); // River Live Action (was 16)
+                            setWizardStep(18); // River Live Action
                         }, 250);
                     }
                     return next;
@@ -421,7 +431,7 @@ export function HandWizard({
 
             const shouldShowContinueButton = () => {
                 // Returns true if step needs a bottom Continue/Save button (not auto-advanced on tap grids)
-                return ![3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17].includes(wizardStep);
+                return ![3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18].includes(wizardStep);
             };
 
             const getSuitColor = (suit: string) => {
@@ -454,7 +464,7 @@ export function HandWizard({
 
                     {/* Progress dots bar */}
                     <div className="flex items-center justify-between gap-1 px-4 py-1.5 bg-slate-950/50 rounded-lg overflow-x-auto">
-                        {[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19].map(s => (
+                        {[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map(s => (
                             <div 
                                 key={s} 
                                 className={`h-1.5 rounded-full flex-1 min-w-[6px] transition-all ${
@@ -683,8 +693,97 @@ export function HandWizard({
                             </div>
                         )}
 
-                        {/* STEP 7: Villain Count */}
+                        {/* STEP 7: Hero preflop action (before villain setup) */}
                         {wizardStep === 7 && (
+                            <div className="space-y-4 flex-1 animate-fadeIn">
+                                <p className="text-xs text-slate-400 text-center">
+                                    What was your preflop action? You will log the full betting round with villains on the next steps.
+                                </p>
+
+                                <div className="grid grid-cols-3 gap-2">
+                                    {ACTIONS.map(act => (
+                                        <button
+                                            key={act}
+                                            type="button"
+                                            onClick={() => {
+                                                playHaptic('click');
+                                                if (act === 'Fold' || act === 'Limp') {
+                                                    setHand(prev => ({
+                                                        ...prev,
+                                                        preflopAction: act,
+                                                        preflopAmount: '',
+                                                        ...(act === 'Fold' ? { preflopFolded: true } : {}),
+                                                    }));
+                                                    setTimeout(() => setWizardStep(8), 150);
+                                                } else {
+                                                    updateHandState('preflopAction', act);
+                                                }
+                                            }}
+                                            className={`p-4 rounded-xl text-xs font-black transition-all ${
+                                                hand.preflopAction === act ? 'bg-poker-primary text-slate-950 glow-green' : 'bg-slate-950 border border-slate-900 text-slate-400 hover:border-slate-800'
+                                            }`}
+                                        >
+                                            {act}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {hand.preflopAction && hand.preflopAction !== 'Fold' && hand.preflopAction !== 'Limp' && (
+                                    <div className="space-y-3 pt-4 border-t border-slate-900 animate-fadeIn">
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest font-semibold block">Select Bet Sizing</label>
+
+                                        <div className="grid grid-cols-4 gap-2">
+                                            {['Small', 'Standard', 'Large', 'All-In'].map(size => (
+                                                <button
+                                                    key={size}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        playHaptic('success');
+                                                        updateHandState('preflopAmount', size);
+                                                        setTimeout(() => setWizardStep(8), 150);
+                                                    }}
+                                                    className={`py-3 rounded-xl text-xs font-bold border transition-all ${
+                                                        hand.preflopAmount === size
+                                                            ? 'bg-poker-accent text-slate-950 border-poker-accent glow-gold'
+                                                            : 'bg-slate-950 border-slate-900 text-slate-400 hover:border-slate-800'
+                                                    }`}
+                                                >
+                                                    {size}
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        <div className="space-y-2 pt-2">
+                                            <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Or custom action amount</span>
+                                            <div className="flex gap-2">
+                                                <input
+                                                    type="text"
+                                                    placeholder="e.g. 15 BB or $30"
+                                                    value={['Small', 'Standard', 'Large', 'All-In'].includes(hand.preflopAmount) ? '' : hand.preflopAmount}
+                                                    onChange={(e) => updateHandState('preflopAmount', e.target.value)}
+                                                    className="flex-1 p-3 rounded-xl bg-slate-950 border border-slate-900 focus:border-poker-primary text-white text-xs focus:outline-none"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (hand.preflopAmount) {
+                                                            playHaptic('success');
+                                                            setWizardStep(8);
+                                                        }
+                                                    }}
+                                                    className="px-4 bg-poker-primary text-slate-950 rounded-xl font-bold text-xs"
+                                                >
+                                                    Confirm
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* STEP 8: Villain Count */}
+                        {wizardStep === 8 && (
                             <div className="space-y-4 text-center flex-1 flex flex-col justify-center animate-fadeIn">
                                 <p className="text-xs text-slate-400">How many players remained active in this hand against you preflop?</p>
                                 
@@ -702,7 +801,7 @@ export function HandWizard({
                                                         result: 'Won',
                                                         notes: prev.notes || 'Everyone folded preflop.'
                                                     }));
-                                                    setTimeout(() => setWizardStep(19), 200); // Direct jump to hand outcome notes screen (Step 19)
+                                                    setTimeout(() => setWizardStep(20), 200);
                                                 } else {
                                                     setHand((prev) => ({
                                                         ...prev,
@@ -714,7 +813,7 @@ export function HandWizard({
                                                             cnt
                                                         ),
                                                     }));
-                                                    setTimeout(() => setWizardStep(8), 150);
+                                                    setTimeout(() => setWizardStep(9), 150);
                                                 }
                                             }}
                                             className={`py-4 rounded-xl text-sm font-extrabold transition-all ${
@@ -728,8 +827,8 @@ export function HandWizard({
                             </div>
                         )}
 
-                        {/* STEP 8: Villain profiles (seat + tags) */}
-                        {wizardStep === 8 && (
+                        {/* STEP 9: Villain profiles (seat + tags) */}
+                        {wizardStep === 9 && (
                             <div className="space-y-4 flex-1 animate-fadeIn">
                                 <p className="text-xs text-slate-400 text-center">Seat and tags for Villain {selectedVillainIndex + 1}. Preflop action is logged on the next step.</p>
                                 
@@ -816,8 +915,8 @@ export function HandWizard({
                             </div>
                         )}
 
-                        {/* STEP 9: Preflop live action — round must complete before flop */}
-                        {wizardStep === 9 && (
+                        {/* STEP 10: Preflop live action — round must complete before flop */}
+                        {wizardStep === 10 && (
                             <PreflopLiveActionLogger
                                 streetState={streetState}
                                 setStreetState={setStreetState}
@@ -827,8 +926,8 @@ export function HandWizard({
                             />
                         )}
 
-                        {/* STEP 10: Flop Card 1 Input (was Step 9) */}
-                        {wizardStep === 10 && (
+                        {/* STEP 11: Flop Card 1 */}
+                        {wizardStep === 11 && (
                             <div className="space-y-4 flex-1 animate-fadeIn">
                                 <p className="text-xs text-slate-400 text-center">Select Rank & Suit for Flop Card 1.</p>
                                 
@@ -889,8 +988,8 @@ export function HandWizard({
                             </div>
                         )}
 
-                        {/* STEP 11: Flop Card 2 Input (was Step 10) */}
-                        {wizardStep === 11 && (
+                        {/* STEP 12: Flop Card 2 */}
+                        {wizardStep === 12 && (
                             <div className="space-y-4 flex-1 animate-fadeIn">
                                 <p className="text-xs text-slate-400 text-center">Select Rank & Suit for Flop Card 2.</p>
                                 
@@ -957,8 +1056,8 @@ export function HandWizard({
                             </div>
                         )}
 
-                        {/* STEP 12: Flop Card 3 Input (was Step 11) */}
-                        {wizardStep === 12 && (
+                        {/* STEP 13: Flop Card 3 */}
+                        {wizardStep === 13 && (
                             <div className="space-y-4 flex-1 animate-fadeIn">
                                 <p className="text-xs text-slate-400 text-center">Select Rank & Suit for Flop Card 3.</p>
                                 
@@ -1029,8 +1128,8 @@ export function HandWizard({
                             </div>
                         )}
 
-                        {/* STEP 13: FLOP LIVE ACTION STATE MACHINE (was Step 12) */}
-                        {wizardStep === 13 && (
+                        {/* STEP 14: Flop live action */}
+                        {wizardStep === 14 && (
                             <PostflopLiveActionLogger 
                                 streetState={streetState}
                                 setStreetState={setStreetState}
@@ -1041,8 +1140,8 @@ export function HandWizard({
                             />
                         )}
 
-                        {/* STEP 14: Turn Board Card (was Step 13) */}
-                        {wizardStep === 14 && (
+                        {/* STEP 15: Turn board card */}
+                        {wizardStep === 15 && (
                             <div className="space-y-4 flex-1 animate-fadeIn">
                                 <p className="text-xs text-slate-400 text-center">Select Rank & Suit for the Turn Board Card.</p>
                                 
@@ -1103,8 +1202,8 @@ export function HandWizard({
                             </div>
                         )}
 
-                        {/* STEP 15: TURN LIVE ACTION STATE MACHINE (was Step 14) */}
-                        {wizardStep === 15 && (
+                        {/* STEP 16: Turn live action */}
+                        {wizardStep === 16 && (
                             <PostflopLiveActionLogger 
                                 streetState={streetState}
                                 setStreetState={setStreetState}
@@ -1115,8 +1214,8 @@ export function HandWizard({
                             />
                         )}
 
-                        {/* STEP 16: River Board Card (was Step 15) */}
-                        {wizardStep === 16 && (
+                        {/* STEP 17: River board card */}
+                        {wizardStep === 17 && (
                             <div className="space-y-4 flex-1 animate-fadeIn">
                                 <p className="text-xs text-slate-400 text-center">Select Rank & Suit for the River Board Card.</p>
                                 
@@ -1177,8 +1276,8 @@ export function HandWizard({
                             </div>
                         )}
 
-                        {/* STEP 17: RIVER LIVE ACTION STATE MACHINE (was Step 16) */}
-                        {wizardStep === 17 && (
+                        {/* STEP 18: River live action */}
+                        {wizardStep === 18 && (
                             <PostflopLiveActionLogger 
                                 streetState={streetState}
                                 setStreetState={setStreetState}
@@ -1189,8 +1288,8 @@ export function HandWizard({
                             />
                         )}
 
-                        {/* STEP 18: Hand Performance Outcome (was Step 17) */}
-                        {wizardStep === 18 && (
+                        {/* STEP 19: Hand outcome */}
+                        {wizardStep === 19 && (
                             <div className="space-y-5 flex-1 flex flex-col justify-center animate-fadeIn">
                                 <p className="text-xs text-slate-400 text-center">Log final performance outcomes.</p>
                                 
@@ -1228,8 +1327,8 @@ export function HandWizard({
                             </div>
                         )}
 
-                        {/* STEP 19: Notes & Review Strategy (was Step 18) */}
-                        {wizardStep === 19 && (
+                        {/* STEP 20: Notes & review */}
+                        {wizardStep === 20 && (
                             <div className="space-y-4 flex-1 animate-fadeIn">
                                 <p className="text-xs text-slate-400 text-center">Write optional analysis commentary & review tags.</p>
                                 
@@ -1290,7 +1389,7 @@ export function HandWizard({
                         </button>
                         
                         {shouldShowContinueButton() && (
-                            wizardStep === 8 && selectedVillainIndex < hand.villainCount - 1 ? (
+                            wizardStep === 9 && selectedVillainIndex < hand.villainCount - 1 ? (
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -1301,7 +1400,7 @@ export function HandWizard({
                                 >
                                     Next Villain
                                 </button>
-                            ) : wizardStep === 19 ? (
+                            ) : wizardStep === 20 ? (
                                 <button
                                     type="button"
                                     onClick={() => onSave(hand)}

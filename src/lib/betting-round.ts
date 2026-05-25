@@ -44,6 +44,56 @@ export function buildPreflopRoster(
   );
 }
 
+/** If hero is first to act, apply step-7 summary so live logging continues from the next seat. */
+export function seedPreflopFromHeroSummary(
+  state: StreetState,
+  heroSummary: string,
+  sizing = ""
+): StreetState {
+  const base: StreetState = {
+    ...state,
+    history: [],
+    highestBet: 0,
+    lastRaiserId: null,
+    showBetSizes: false,
+    currentActionPending: "",
+  };
+
+  if (!heroSummary || heroSummary === "Fold" || heroSummary === "Call") {
+    return { ...base, currentActorIndex: 0 };
+  }
+
+  const firstActor = state.players[0];
+  if (!firstActor?.isHero) {
+    return { ...base, currentActorIndex: 0 };
+  }
+
+  const heroIndex = state.players.findIndex((p) => p.isHero);
+  let actionType = "Bet";
+  if (heroSummary === "Limp") actionType = "Limp";
+  else if (heroSummary === "Raise") actionType = "Bet";
+  else if (heroSummary === "3-Bet" || heroSummary === "All-In") actionType = "Raise";
+
+  const result = processStreetAction(
+    { ...base, currentActorIndex: heroIndex },
+    actionType,
+    sizing
+  );
+
+  return {
+    street: "preflop",
+    players: result.players,
+    history: result.history,
+    currentActorIndex: result.roundComplete
+      ? heroIndex
+      : result.nextActorIndex,
+    highestBet: result.highestBet,
+    lastRaiserId: result.lastRaiserId,
+    showBetSizes: false,
+    currentActionPending: "",
+  };
+}
+
 /** Preflop: only show actions that make sense for current bet level. */
 export function getValidPreflopActions(
   player: StreetPlayer,

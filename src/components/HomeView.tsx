@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Play, Trash2 } from "lucide-react";
+import { Archive, DatabaseZap, Play, Trash2 } from "lucide-react";
 import type { Session } from "@/lib/types";
 import { CopySessionNotesButton } from "./CopySessionNotesButton";
 
@@ -8,9 +8,15 @@ type HomeViewProps = {
   pastSessions: Session[];
   onStartClick: () => void;
   onDeleteSession: (id: string) => void;
+  onClearLocalData: () => void;
 };
 
-export function HomeView({ pastSessions, onStartClick, onDeleteSession }: HomeViewProps) {
+export function HomeView({
+  pastSessions,
+  onStartClick,
+  onDeleteSession,
+  onClearLocalData,
+}: HomeViewProps) {
   const totalHands = pastSessions.reduce(
     (acc, s) => acc + (s.hands ? s.hands.length : 0),
     0
@@ -153,6 +159,15 @@ export function HomeView({ pastSessions, onStartClick, onDeleteSession }: HomeVi
           </div>
         )}
       </div>
+
+      <button
+        type="button"
+        onClick={onClearLocalData}
+        className="w-full py-3 flex items-center justify-center gap-2 rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 text-amber-500/90 hover:bg-amber-500/10 text-[10px] font-bold uppercase tracking-widest transition-all"
+      >
+        <DatabaseZap className="w-3.5 h-3.5" />
+        Clear local data (testing)
+      </button>
     </div>
   );
 }

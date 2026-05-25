@@ -57,6 +57,13 @@ export function clearActiveSession(): void {
   localStorage.removeItem(ACTIVE_SESSION_KEY);
 }
 
+/** Wipes all app data from localStorage (for testing). */
+export function clearAllLocalData(): void {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(ACTIVE_SESSION_KEY);
+}
+
 export function createEmptyHand(): Hand {
   return {
     id: Date.now().toString(),

@@ -7,6 +7,7 @@ import { recalculateSessionNet } from "@/lib/session-math";
 import {
   buildSessionWithDraft,
   clearActiveSession,
+  clearAllLocalData,
   cloneHand,
   createEmptyHand,
   loadActiveSession,
@@ -238,6 +239,26 @@ export function FourBigsApp() {
     saveSessionsToStorage(filter);
   };
 
+  const handleClearLocalData = () => {
+    if (
+      !window.confirm(
+        "Clear all local 4 Bigs data? This removes saved sessions, the active session, and any in-progress hand. For testing only."
+      )
+    ) {
+      return;
+    }
+    playHaptic("delete");
+    clearAllLocalData();
+    setPastSessions([]);
+    setActiveSession(null);
+    setCurrentHand(null);
+    setEditingHandId(null);
+    setWizardStep(3);
+    setSelectedVillainIndex(0);
+    setShowEndConfirm(false);
+    setStep("HOME");
+  };
+
   const openInstallGuide = () => {
     setReturnStep(step);
     dismissBanner();
@@ -325,6 +346,7 @@ export function FourBigsApp() {
               setStep("START_SESSION");
             }}
             onDeleteSession={handleDeleteSession}
+            onClearLocalData={handleClearLocalData}
           />
         )}
 
