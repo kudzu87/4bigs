@@ -173,14 +173,12 @@ export function HandWizard({
                 
                 // If entering Flop actions (Step 13), Turn actions (Step 15), or River actions (Step 17)
                 // Initialize the positional bidding states
-                if (wizardStep === 13) {
-                    if (streetState.players.length === 0) {
-                        initStreetState('flop');
-                    }
-                } else if (wizardStep === 15) {
-                    initStreetState('turn');
-                } else if (wizardStep === 17) {
-                    initStreetState('river');
+                if (wizardStep === 13 && streetState.street !== "flop") {
+                    initStreetState("flop");
+                } else if (wizardStep === 15 && streetState.street !== "turn") {
+                    initStreetState("turn");
+                } else if (wizardStep === 17 && streetState.street !== "river") {
+                    initStreetState("river");
                 }
 
                 setWizardStep(prev => prev + 1);
@@ -569,17 +567,11 @@ export function HandWizard({
             };
 
             const handleTurnCardInput = (key: "rank" | "suit", val: string) => {
-                applyCardInput({ zone: "turn" }, key, val, () => {
-                    initStreetState("turn");
-                    setWizardStep(16);
-                });
+                applyCardInput({ zone: "turn" }, key, val);
             };
 
             const handleRiverCardInput = (key: "rank" | "suit", val: string) => {
-                applyCardInput({ zone: "river" }, key, val, () => {
-                    initStreetState("river");
-                    setWizardStep(18);
-                });
+                applyCardInput({ zone: "river" }, key, val);
             };
 
             const rankPickerClass = (slot: CardSlot, rank: string, selected: boolean) => {
@@ -611,7 +603,7 @@ export function HandWizard({
 
             const shouldShowContinueButton = () => {
                 // Returns true if step needs a bottom Continue/Save button (not auto-advanced on tap grids)
-                return ![3, 4, 5, 6, 7, 8, 10, 11, 12, 14, 15, 16, 17, 18].includes(wizardStep);
+                return ![3, 4, 5, 6, 7, 8, 10, 11, 12, 14, 16, 18].includes(wizardStep);
             };
 
             const getSuitColor = (suit: string) => {
