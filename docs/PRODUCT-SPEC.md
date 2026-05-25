@@ -8,13 +8,31 @@
 
 ## 1. Product summary
 
-**4 Bigs** is a local-first, mobile-friendly poker **hand logger** for live sessions. It guides the user through structured hand capture (position, cards, preflop/postflop action, villains, outcome) and stores everything on-device. There is no account system or cloud sync today.
+**4 Bigs** is a local-first, mobile-friendly **live poker hand logger** for cash-game players who want structured session notes without spreadsheets or cloud accounts. You start a session (stakes, table size, room), log hands through a guided **20-step wizard**, and review or copy everything as plain text for Notes, Notion, or study later.
+
+**What you capture per hand**
+- Hero position, stack, hole cards, and preflop line with **BB-based sizing** (2BB–5BB, All-In, custom)
+- Up to five villains: seat (filtered by your preflop line), player type tags, preflop action, notes
+- Full **preflop and postflop betting rounds** in seat order — only valid actions at each decision point
+- Board runout, street-by-street action with **pot-aware sizing** (1/3, 1/2, 2/3, Pot, etc., shown in dollars at the table)
+- Outcome (Won / Lost / Split + amount), freeform notes, and **grouped review tags** (spot type, your decision, session state)
+
+**What makes the logging smart**
+- **Villain seat suggestions** follow poker logic (e.g. Call → raiser in an earlier seat; Raise/3-Bet → villains after you)
+- **Preflop can auto-complete** when step 7 + villain profiles already define the line — no duplicate logging on step 10
+- **Pot tracking in BB** (1.5 BB blind seed, snapshots per street on `Hand.potByStreet`) drives postflop bet sizes and **export dollar amounts** via session `bigBlind`
+
+**Session tools**
+- Running **net P&amp;L** across hands, hand ledger in-session, edit/delete
+- **Copy session notes** — one tap clipboard export with pot per street and resolved `$` on each wager
+- **Resume** interrupted hands (wizard draft + active session in `localStorage`)
+- **PWA** install for phone home-screen use; works offline for the app shell, data stays on-device
 
 | Attribute | Detail |
 |-----------|--------|
-| Primary user | Live cash player reviewing sessions later |
-| Platform | Web app + PWA (install to home screen) |
-| Data | `localStorage` only on the device |
+| Primary user | Live cash player building a reviewable hand history |
+| Platform | Web app + PWA ([4bigs.vercel.app](https://4bigs.vercel.app)) |
+| Data | `localStorage` only — no account, no cloud sync |
 | Monetization | None |
 
 ---
@@ -26,7 +44,7 @@
 - Full **preflop betting round** before flop (hero + villains, valid actions only)
 - Full **postflop** streets with the same round-complete rules
 - Session P&amp;L and hand history on device
-- **Copy session notes** — plain-text summary for Apple Notes / Notion / etc.
+- **Copy session notes** — plain-text summary with pot per street and resolved dollar amounts
 - Resume interrupted hands (wizard draft + active session)
 
 ### Non-goals (current)
@@ -34,7 +52,7 @@
 - GTO solver or equity
 - JSON/CSV file export (only clipboard text today)
 - Real-time multiplayer
-- **Pot size tracking** — deferred to **v2** (street-level pot / stack-to-pot ratios are not captured in MVP)
+- Solver-grade stack-to-pot ratios beyond stored pot snapshots
 
 ---
 
@@ -142,11 +160,15 @@ Progress dots: steps **3–20** (steps 1–2 unused; wizard opens at 3).
 │ [Fold][Limp][Call]               │
 │ [Raise][3-Bet][All-In]           │
 │                                  │
-│ Select bet sizing (if needed):   │
-│ [Small][Standard][Large][All-In] │
-│ custom amount + Confirm          │
+│ Select open size (BB):           │
+│ [2BB][2.5BB][3BB]              │
+│ [4BB][5BB][All-In]             │
+│ [Custom] → numeric BB + Confirm│
+│ (each preset shows $ at stakes)│
 └──────────────────────────────────┘
 ```
+
+**Sizing storage:** `preflopAmount` stores a BB multiplier as a string (`"2"`, `"2.5"`, …) or `"all-in"`. Custom uses a numeric BB value (e.g. `"7.5"`).
 
 ### 4.5 Step 10 — Preflop live action
 
@@ -164,8 +186,10 @@ Progress dots: steps **3–20** (steps 1–2 unused; wizard opens at 3).
 │ ── or Check/Bet when unopened ── │
 │                                  │
 │ Preflop Action Log               │
-│ [1] Hero (BTN) Bet [Standard]    │
-│ [2] Villain 1 (SB) Raise [3x]    │
+│ [1] Villain 1 (CO) Bet [3]       │
+│ [2] Hero (BTN) Call              │
+│ (or auto-skipped if step 7+9     │
+│  already closed the round)       │
 │                                  │
 │ [ Skip to outcome ]              │
 └──────────────────────────────────┘
@@ -179,6 +203,10 @@ Same layout as preflop live; valid actions:
 - **Unopened:** Check, Bet (+ sizing)
 - **Facing bet:** Fold, Call, Raise (+ sizing)
 
+**Pot in UI:** Header shows current pot as **$X (Y BB)** using live `streetState.pot` and session `bigBlind`.
+
+**Bet/raise sizing buttons:** `1/3`, `1/2`, `2/3`, `Pot`, `All-In`, `Custom` — fractional labels show resolved **dollar amount** under each chip (based on pot at action time). Custom uses a numeric BB input.
+
 ---
 
 ## 5. Functional spec — betting rounds
@@ -191,12 +219,32 @@ Same layout as preflop live; valid actions:
 | No bet yet, already acted (matched) | Fold, Check, Bet |
 | Facing a bet | Fold, Call, Raise |
 
+**Preflop sizing (BB-based):**
+
+| Context | Options | Stored as |
+|---------|---------|-----------|
+| Step 7 hero open / 3-bet / all-in | 2BB, 2.5BB, 3BB, 4BB, 5BB, All-In, Custom (numeric BB) | `preflopAmount` string (`"2"`, `"2.5"`, `"all-in"`, …) |
+| Step 10 live Bet / Raise | Same BB presets + Custom | Sizing suffix in `preflopActions[]` log lines |
+
+**Engine:** Preflop pot seeds at **1.5 BB** (SB + BB). Each Limp / Call / Bet / Raise adds the resolved BB increment to `pot`. Contributions and `highestBet` are tracked in BB.
+
 ### 5.2 Postflop valid actions
 
 | Situation | Actions shown |
 |-----------|----------------|
 | Unopened | Check, Bet |
 | Facing bet | Fold, Call, Raise |
+
+**Postflop sizing (fractional pot):**
+
+| Label | Resolved wager (BB) |
+|-------|---------------------|
+| `1/3` | Pot at action start ÷ 3 |
+| `1/2` | Pot at action start ÷ 2 |
+| `2/3` | Pot at action start × 2/3 |
+| `pot` | Full pot at action start |
+| `all-in` | (handled as qualitative) |
+| Custom | Numeric BB entered by user |
 
 ### 5.3 Round completion
 
@@ -206,7 +254,9 @@ Same layout as preflop live; valid actions:
 
 ### 5.4 Hero preflop seeding (step 7 → 10)
 
-If hero is **first to act** by seat order, step 7 choice (Limp / open Bet / Raise) is applied when step 10 loads so live logging continues with villains. If villains act first, step 10 starts from earliest seat; hero acts when action reaches them.
+If hero is **first to act** by seat order, step 7 choice (Limp / open Bet / Raise / 3-Bet with BB sizing) is applied when step 10 loads so live logging continues with villains. If villains act first, step 10 starts from earliest seat; hero acts when action reaches them.
+
+When **step 7 + step 9 villain profile actions** fully close the preflop round (e.g. hero Call, villain Raise, hero Call), step 10 is **auto-skipped** and the hand jumps to flop cards — `preflopActions[]` and `potByStreet.preflop` are saved from the engine replay.
 
 ---
 
@@ -225,14 +275,14 @@ On **step 9 (Villain profile)**, the app suggests which seats each villain can o
 
 | Hero line (step 7) | Villain count | Seats offered for villains |
 |--------------------|---------------|---------------------------|
-| **Limp** or **Raise** | Any | **Later positions only** — villains who act after you |
-| **Call** or **3-Bet** | Exactly **1** | **Earlier positions only** — the raiser / aggressor acts before you |
-| **Call** or **3-Bet** | **2 or more** | **Earlier + later positions** — no seat filter (full table) |
+| **Limp**, **Raise**, or **3-Bet** | Any | **Later positions only** — villains who act after you |
+| **Call** | Exactly **1** | **Earlier positions only** — the raiser acts before you |
+| **Call** | **2 or more** | **Earlier + later positions** — no seat filter (full table) |
 | Other (e.g. Fold, All-In, or empty) | Any | **Earlier + later positions** — no seat filter |
 
-**Note:** **Raise** is always treated as an aggressive/opening line (first row), so it never uses the “call / 3-bet vs one raiser” earlier-only rule. Only **Call** and **3-Bet** do.
+**Note:** **3-Bet** is treated like **Raise** — an aggressive re-raise where hero acts before villains in the profile step (`heroPreflopActsBeforeVillains` includes Limp, Raise, and 3-Bet). Only **Call** (with one villain) uses the earlier-only raiser seat filter.
 
-After **step 10 (Preflop live action)** finishes, villain `action` fields are updated from the action log; seat choices from step 9 may be re-sanitized if they no longer fit the inferred line.
+After **step 10 (Preflop live action)** finishes — or when the round is auto-completed from step 7 + 9 — villain `action` fields are updated from the action log; seat choices from step 9 may be re-sanitized if they no longer fit the inferred line.
 
 **Remembering hero’s line when villains act first**
 
@@ -240,8 +290,9 @@ After **step 10 (Preflop live action)** finishes, villain `action` fields are up
 |-------------|-----------------------------|-------------------------------------|
 | **Call** | Villain action pre-selected **Raise**; hero line shown in banner | **Call** highlighted with step 7 sizing; one tap to log |
 | **Raise** | Villain action pre-selected **Call** (hero opened first) | Hero open already seeded if hero acts first |
+| **3-Bet** | Villains act after hero (no “villains act first” banner) | Hero 3-bet already seeded if hero acts first |
 
-Villains still log their raises in the live round on step 10; step 9 pre-selection is a shortcut for who acted before hero.
+When step 7 + step 9 define the full preflop line, step 10 may be skipped entirely (see §5.4).
 
 ### Example A — Hero raises (later positions only)
 
@@ -252,38 +303,65 @@ Villains still log their raises in the live round on step 10; step 9 pre-selecti
 
 Hero opened or raised from CO, so villains should sit **after** CO in preflop order. The picker shows **BTN, SB, BB** (not UTG–HJ). The UI hint: *“Based on your limp/raise, villains are in later positions (acted after you).”*
 
-### Example B — Hero calls a 3-bet (earlier positions only, one villain)
+### Example B — Hero calls a raise (earlier positions only, one villain)
 
 - **Table:** 9-max  
 - **Hero:** BTN  
-- **Step 7:** **Call** (you flat-called a 3-bet or raise)  
+- **Step 7:** **Call** (you flat-called a raise or 3-bet)  
 - **Villains:** 1  
 
-Hero is continuing vs a preflop aggressor, so that villain should be in a seat that **acted before** BTN. The picker shows **UTG through CO** only (not SB/BB as the “raiser” seat). The UI hint: *“Based on your call/3-bet, the raiser is in an earlier position.”*
+Hero is continuing vs a preflop aggressor, so that villain should be in a seat that **acted before** BTN. The picker shows **UTG through CO** only (not SB/BB as the “raiser” seat). The UI hint: *“Based on your call/3-bet, the raiser is in an earlier position.”* (shown for **Call** only; **3-Bet** uses the later-positions rule in Example C).
 
-If you set **2+ villains** with the same **Call** or **3-Bet** line, the filter is turned off and **earlier + later positions** are all available — the app no longer assumes a single earlier-position raiser.
+If you set **2+ villains** with **Call**, the filter is turned off and **earlier + later positions** are all available — the app no longer assumes a single earlier-position raiser.
+
+### Example C — Hero 3-bets (later positions only)
+
+- **Table:** 6-max  
+- **Hero:** CO  
+- **Step 7:** **3-Bet** (with sizing e.g. 3BB)  
+- **Villains:** 1  
+
+Hero re-raised as the aggressor, so villains sit in **later** seats (BTN, SB, BB). Step 9 does **not** show “villains act before you.”
 
 ---
 
 ## 7. Data model (summary)
 
 ### Session
-- `id`, `startTime`, `endTime?`, `stakes`, `tableSize`, `roomName`, `startingStack`
+- `id`, `startTime`, `endTime?`, `stakes`, `bigBlind` (dollars per BB, parsed from stakes e.g. `1/2` → `2`), `tableSize`, `roomName`, `startingStack`
 - `hands[]`, `netAmount`, `draft?` (in-progress wizard)
 
 ### Hand (per hand)
 - Hero: `heroPosition`, `heroPositionIndex`, `heroCards[2]`, `effectiveStack`
-- Preflop: `preflopAction`, `preflopAmount`, `preflopActions[]`, `preflopFolded?`
+- Preflop: `preflopAction`, `preflopAmount` (BB multiplier string), `preflopActions[]`, `preflopFolded?`
 - Villains: `villainCount`, `villains[]` (position, tag, action, notes, street fold flags)
 - Board: `boardFlop[3]`, `boardTurn`, `boardRiver`
 - Actions: `flopActions[]`, `turnActions[]`, `riverActions[]`
+- Pot: `potByStreet?` — `{ preflop?, flop?, turn?, river? }` each in **BB** at end of that street’s betting
 - Result: `result`, `resultAmount`, `notes`, `tags[]`
-
-> **Pot size (not in MVP):** Per-street pot size is **not** stored on `Hand` today. Bet sizing in action logs is qualitative (e.g. `[Standard]`, `[1/2 pot]`). When pot tracking ships in v2, `src/lib/betting-round.ts` is the intended place to compute and persist pot state through the betting-round engine.
 
 ### Storage keys
 - `four_bigs_sessions` — completed sessions
 - `four_bigs_active_session` — live session + optional wizard draft
+
+---
+
+## 7.1 Pot tracking
+
+Live betting (`betting-round.ts` + wizard street state) tracks pot in **BB** during the hand; snapshots persist on the saved `Hand`.
+
+| Concept | Detail |
+|---------|--------|
+| **Live state** | `StreetState.pot` — running pot in BB; updates on Limp / Call / Bet / Raise |
+| **Preflop seed** | **1.5 BB** (SB 0.5 + BB 1.0) before first action |
+| **Postflop wagers** | Fractional labels (`1/3`, `1/2`, `2/3`, `pot`) resolve against **pot at the start of that action** |
+| **Preflop wagers** | Step 7 / live Bet-Raise use BB multipliers (`2`, `2.5`, …) |
+| **Snapshots** | `StreetState.potByStreet` during play; copied to `Hand.potByStreet` on save and when each street completes |
+| **Carry-forward** | Flop/turn/river init uses the previous street’s ending pot (BB) |
+
+**Dollar conversion:** At export and in postflop UI hints, BB × `session.bigBlind` → dollars. `parseBigBlindFromStakes()` derives `bigBlind` when missing on older sessions.
+
+**Not stored:** Per-action dollar amounts in the log arrays (still sizing labels); export **replays** actions to compute `— $X` suffixes. Check / Fold omit dollar amounts.
 
 ---
 
@@ -308,26 +386,29 @@ Hands: 2
 Hand #1
 Hero: BTN (100bb) — Ah Kd
 Board: Ah 7c 2d · 9s · 3h
-Preflop:
-  • Hero Bet [Standard]
-  • Villain 1 SB Raise [3x]
-  • Hero Call
-Flop:
+Preflop: (pot $3)
+  • Villain 1 CO Bet [3BB] — $6
+  • Hero Call — $6
+Flop: (pot $18)
   • Hero Check
-  • Villain 1 Bet [1/2]
-  • Hero Call
-Turn:
+  • Villain 1 Bet [1/2] — $9
+  • Hero Call — $9
+Turn: (pot $36)
   • Hero Check
   • Villain 1 Check
-River:
-  • Hero Bet [3/4]
+River: (pot $36)
+  • Hero Bet [2/3] — $24
   • Villain 1 Fold
 Villains:
-  • V1 SB (Reg)
+  • V1 CO (Reg) — Raise pre
 Result: Won +$45
-Tags: #Value Bet
+Tags: #Thin Value #Single Raised Pot
 Notes: Villain overfolded river.
 ```
+
+- **Street headers** — `Preflop: (pot $X)` uses pot at **start** of that street’s betting (from `hand.potByStreet` + engine replay).
+- **Action lines** — sizing label kept in brackets; **resolved increment** shown as `— $Y` (omitted for Check / Fold).
+- **Villains block** — profile preflop action; missing action exports as `Unknown`.
 
 ### 8.1 Tags
 
@@ -335,7 +416,7 @@ Hand review tags are optional metadata attached when you finish a hand on **step
 
 | Aspect | Spec |
 |--------|------|
-| **Entry** | **Suggested review chips** on step 20 (`REVIEW_TAGS` in `constants.ts` — e.g. Bluff, Value Bet, Big Fold); tap to toggle |
+| **Entry** | **Grouped review chips** on step 20 (`REVIEW_TAG_GROUPS`: Spot type, My decision, Session state); tap to toggle |
 | **Storage** | `hand.tags` — a **string array** on each `Hand` (values stored **without** the `#` prefix) |
 | **Export** | One line per hand in copy output: `Tags: #tag1 #tag2` (hash added at render time in `session-summary.ts`) |
 | **Taxonomy** | **Suggested set in MVP** — UI offers a fixed chip list; the array could hold other strings later, but users cannot type custom tags today |
@@ -391,6 +472,8 @@ Key modules: `HandWizard`, `PreflopLiveActionLogger`, `PostflopLiveActionLogger`
 | Date | Change |
 |------|--------|
 | May 2026 | Initial spec: preflop live action, hero step 7, copy notes, PWA, testing reset |
+| May 2026 | BB preflop sizing, pot tracking (`potByStreet`, `bigBlind`), export dollar amounts, 3-bet position fix |
+| May 2026 | Grouped review tags (`REVIEW_TAG_GROUPS`), step 20 UI by category |
 
 ---
 

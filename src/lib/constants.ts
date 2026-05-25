@@ -42,6 +42,67 @@ export const SUITS = [
   },
 ] as const;
 export const ACTIONS = ["Fold", "Limp", "Call", "Raise", "3-Bet", "All-In"] as const;
+
+/** Preflop open/raise sizing stored as BB multiplier string (e.g. "2", "2.5") or "all-in". */
+export type PreflopBbSizingValue = number | "all-in";
+
+export const PREFLOP_BB_SIZINGS = [
+  { label: "2BB", bb: 2 },
+  { label: "2.5BB", bb: 2.5 },
+  { label: "3BB", bb: 3 },
+  { label: "4BB", bb: 4 },
+  { label: "5BB", bb: 5 },
+  { label: "All-In", bb: "all-in" as const },
+] as const;
+
+export const PREFLOP_SIZING_CUSTOM = "custom" as const;
+
+export function preflopBbToAmount(bb: PreflopBbSizingValue): string {
+  return bb === "all-in" ? "all-in" : String(bb);
+}
+
+export function formatPreflopSizing(amount: string): string {
+  if (!amount) return "";
+  if (amount === "all-in") return "All-In";
+  const trimmed = amount.trim();
+  if (/^\d+(\.\d+)?$/.test(trimmed)) {
+    return `${trimmed}BB`;
+  }
+  return amount;
+}
+
+export function isPresetPreflopBbAmount(amount: string): boolean {
+  if (amount === "all-in") return true;
+  return PREFLOP_BB_SIZINGS.some(
+    (o) => typeof o.bb === "number" && String(o.bb) === amount
+  );
+}
+
+/** Step 10 preflop live logger: BB presets + Custom. */
+export const PREFLOP_LIVE_SIZING_OPTIONS = [
+  ...PREFLOP_BB_SIZINGS.map((o) => ({
+    label: o.label,
+    value: preflopBbToAmount(o.bb),
+  })),
+  { label: "Custom", value: PREFLOP_SIZING_CUSTOM },
+] as const;
+
+/** Postflop bet/raise sizing (fractional pot labels). */
+export const POSTFLOP_SIZINGS = [
+  "1/3",
+  "1/2",
+  "2/3",
+  "pot",
+  "all-in",
+  "custom",
+] as const;
+
+export function formatPostflopSizingLabel(value: string): string {
+  if (value === "pot") return "Pot";
+  if (value === "all-in") return "All-In";
+  if (value === "custom") return "Custom";
+  return value;
+}
 export const PROFILE_TAGS = [
   "Fish",
   "Reg",
@@ -50,13 +111,29 @@ export const PROFILE_TAGS = [
   "Calling Station",
   "Unknown",
 ] as const;
+export const REVIEW_TAG_GROUPS = {
+  "Spot type": [
+    "3-Bet Pot",
+    "Multiway",
+    "Single Raised Pot",
+    "Missed Draw",
+  ],
+  "My decision": [
+    "Bluff",
+    "Thin Value",
+    "Hero Call",
+    "Big Fold",
+    "Overbet",
+    "Probe Bet",
+  ],
+  "Session state": ["Tilted", "Bad Beat", "Running Good"],
+} as const;
+
+/** Flat list for `hand.tags`, export, and any code that iterates all review tags. */
 export const REVIEW_TAGS = [
-  "Bluff",
-  "Bad Beat",
-  "Value Bet",
-  "Big Fold",
-  "Tilted",
-  "Premium Hand",
+  ...REVIEW_TAG_GROUPS["Spot type"],
+  ...REVIEW_TAG_GROUPS["My decision"],
+  ...REVIEW_TAG_GROUPS["Session state"],
 ] as const;
 
 export const POSTFLOP_WEIGHTS: Record<string, number> = {

@@ -1,5 +1,5 @@
 import { ACTIVE_SESSION_KEY, STORAGE_KEY } from "./constants";
-import { recalculateSessionNet } from "./session-math";
+import { normalizeSession, recalculateSessionNet } from "./session-math";
 import type { Hand, Session, SessionDraft } from "./types";
 
 export function loadSessions(): Session[] {
@@ -7,7 +7,7 @@ export function loadSessions(): Session[] {
   const stored = localStorage.getItem(STORAGE_KEY);
   if (!stored) return [];
   try {
-    return JSON.parse(stored) as Session[];
+    return (JSON.parse(stored) as Session[]).map(normalizeSession);
   } catch {
     console.error("Corrupted local save schema resolved.");
     return [];
@@ -26,10 +26,10 @@ export function loadActiveSession(): Session | null {
   try {
     const session = JSON.parse(stored) as Session;
     if (!session?.id || session.endTime) return null;
-    return {
+    return normalizeSession({
       ...session,
       netAmount: recalculateSessionNet(session.hands ?? []),
-    };
+    });
   } catch {
     console.error("Corrupted active session save cleared.");
     clearActiveSession();
@@ -93,6 +93,7 @@ export function createEmptyHand(): Hand {
     resultAmount: "",
     notes: "",
     tags: [],
+    potByStreet: {},
   };
 }
 

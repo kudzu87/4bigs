@@ -31,9 +31,7 @@ export function getVillainPositionMode(
     return "later-only";
   }
   if (
-    (heroPreflopAction === "Call" ||
-      heroPreflopAction === "3-Bet" ||
-      heroPreflopAction === "Raise") &&
+    (heroPreflopAction === "Call" || heroPreflopAction === "3-Bet") &&
     villainCount === 1
   ) {
     return "earlier-only";
@@ -55,7 +53,11 @@ export function inferDefaultVillainPreflopAction(
 export function heroPreflopActsBeforeVillains(
   heroPreflopAction: string
 ): boolean {
-  return heroPreflopAction === "Limp" || heroPreflopAction === "Raise";
+  return (
+    heroPreflopAction === "Limp" ||
+    heroPreflopAction === "Raise" ||
+    heroPreflopAction === "3-Bet"
+  );
 }
 
 export function getVillainPositionHint(mode: VillainPositionMode): string | null {

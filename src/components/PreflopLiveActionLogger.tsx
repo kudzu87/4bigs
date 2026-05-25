@@ -1,11 +1,13 @@
 "use client";
 
+import {
+  formatPreflopSizing,
+  PREFLOP_LIVE_SIZING_OPTIONS,
+  PREFLOP_SIZING_CUSTOM,
+} from "@/lib/constants";
 import { playHaptic } from "@/lib/haptics";
 import { getValidPreflopActions } from "@/lib/betting-round";
 import type { Hand, StreetState } from "@/lib/types";
-
-const OPEN_SIZINGS = ["Small", "Standard", "Large", "All-In", "custom"];
-const RAISE_SIZINGS = ["3x", "4x", "pot", "all-in", "custom"];
 
 type PreflopLiveActionLoggerProps = {
   streetState: StreetState;
@@ -44,7 +46,7 @@ export function PreflopLiveActionLogger({
   const showRaise = validActions.includes("Raise");
 
   const openAction = hasBetOccurred ? "Raise" : "Bet";
-  const sizingOptions = streetState.currentActionPending === "Bet" ? OPEN_SIZINGS : RAISE_SIZINGS;
+  const sizingOptions = PREFLOP_LIVE_SIZING_OPTIONS;
 
   const rememberedHeroAction =
     streetState.rememberedHeroAction ?? hand.preflopAction;
@@ -99,7 +101,11 @@ export function PreflopLiveActionLogger({
             Remembered from step 7
           </span>
           <p className="text-xs font-bold text-sky-200">
-            Call{rememberedHeroSizing ? ` · ${rememberedHeroSizing}` : ""} — tap Call below to log it
+            Call
+            {rememberedHeroSizing
+              ? ` · ${formatPreflopSizing(rememberedHeroSizing)}`
+              : ""}{" "}
+            — tap Call below to log it
           </p>
         </div>
       )}
@@ -163,7 +169,7 @@ export function PreflopLiveActionLogger({
               >
                 Call
                 {heroCallPreselected && rememberedHeroSizing
-                  ? ` (${rememberedHeroSizing})`
+                  ? ` (${formatPreflopSizing(rememberedHeroSizing)})`
                   : ""}
               </button>
             )}
@@ -221,14 +227,17 @@ export function PreflopLiveActionLogger({
               </button>
             </div>
             <div className="grid grid-cols-4 gap-1.5">
-              {sizingOptions.map((sz) => (
+              {sizingOptions.map((opt) => (
                 <button
-                  key={sz}
+                  key={opt.value}
                   type="button"
                   onClick={() => {
-                    if (sz !== "custom") {
+                    if (opt.value !== PREFLOP_SIZING_CUSTOM) {
                       playHaptic("success");
-                      handlePlayerAction(streetState.currentActionPending, sz);
+                      handlePlayerAction(
+                        streetState.currentActionPending,
+                        opt.value
+                      );
                     } else {
                       setStreetState((prev) => ({
                         ...prev,
@@ -238,7 +247,7 @@ export function PreflopLiveActionLogger({
                   }}
                   className="py-2.5 bg-slate-900 border border-slate-800 text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-800 transition-all"
                 >
-                  {sz}
+                  {opt.label}
                 </button>
               ))}
             </div>

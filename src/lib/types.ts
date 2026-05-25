@@ -35,6 +35,8 @@ export type Hand = {
   flopFolded?: boolean;
   turnFolded?: boolean;
   riverFolded?: boolean;
+  /** Pot in BB at end of each street (from live betting engine). */
+  potByStreet?: PotByStreet;
 };
 
 export type SessionDraft = {
@@ -48,6 +50,8 @@ export type Session = {
   startTime: string;
   endTime?: string;
   stakes: string;
+  /** Big blind size in dollars (derived from stakes, e.g. 1/2 → 2). */
+  bigBlind: number;
   tableSize: number;
   roomName: string;
   startingStack: string;
@@ -74,11 +78,22 @@ export type StreetPlayer = {
   actedThisRound: boolean;
 };
 
+export type PotByStreet = {
+  preflop?: number;
+  flop?: number;
+  turn?: number;
+  river?: number;
+};
+
 export type StreetState = {
   street: "preflop" | "flop" | "turn" | "river";
   players: StreetPlayer[];
   history: string[];
   currentActorIndex: number;
+  /** Current pot size in BB (includes blind seed on preflop). */
+  pot: number;
+  /** Pot in BB at end of each completed street. */
+  potByStreet: PotByStreet;
   highestBet: number;
   lastRaiserId: string | null;
   showBetSizes: boolean;

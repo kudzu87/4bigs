@@ -4,18 +4,31 @@ import { useEffect, useState } from "react";
 import { ChevronLeft, XCircle } from "lucide-react";
 import {
   ACTIONS,
+  formatPreflopSizing,
+  isPresetPreflopBbAmount,
+  PREFLOP_BB_SIZINGS,
+  preflopBbToAmount,
   PROFILE_TAGS,
   RANKS,
-  REVIEW_TAGS,
+  REVIEW_TAG_GROUPS,
   SUITS,
 } from "@/lib/constants";
 import {
   buildPreflopRoster,
+  buildPreflopStateFromWizard,
+  createPreflopStreetBase,
   parseHeroPreflopLine,
+  PREFLOP_DEAD_POT_BB,
   processStreetAction,
-  seedPreflopFromHeroSummary,
   syncVillainActionsFromLog,
 } from "@/lib/betting-round";
+import {
+  type CardSlot,
+  getCardAtSlot,
+  isCardAlreadyUsed,
+  isRankDisabled,
+  isSuitDisabled,
+} from "@/lib/cards";
 import { playHaptic } from "@/lib/haptics";
 import {
   buildInitialVillains,
@@ -27,6 +40,7 @@ import {
   getVillainPositionMode,
   sanitizeVillainPositions,
 } from "@/lib/positions";
+import { formatBbAsDollars } from "@/lib/session-math";
 import type { Hand, StreetState } from "@/lib/types";
 import { PostflopLiveActionLogger } from "./PostflopLiveActionLogger";
 import { PreflopLiveActionLogger } from "./PreflopLiveActionLogger";
@@ -43,6 +57,7 @@ export type HandWizardProps = {
   onCancel: () => void;
   isEditing?: boolean;
   onDraftSync?: (hand: Hand) => void;
+  bigBlind: number;
 };
 
 export function HandWizard({
@@ -57,8 +72,10 @@ export function HandWizard({
   onCancel,
   isEditing = false,
   onDraftSync,
+  bigBlind,
 }: HandWizardProps) {
   const [hand, setHand] = useState<Hand>(initialHand);
+  const [preflopCustomOpen, setPreflopCustomOpen] = useState(false);
 
   useEffect(() => {
     onDraftSync?.(hand);
@@ -104,13 +121,21 @@ export function HandWizard({
     if (wizardStep !== 10 || hand.villainCount < 1) return;
     initPreflopState();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wizardStep, hand.villainCount, hand.id]);
+  }, [
+    wizardStep,
+    hand.villainCount,
+    hand.id,
+    hand.preflopAction,
+    hand.villains,
+  ]);
 
   const [streetState, setStreetState] = useState<StreetState>({
     street: "flop",
     players: [],
     history: [],
     currentActorIndex: 0,
+    pot: PREFLOP_DEAD_POT_BB,
+    potByStreet: {},
     highestBet: 0,
     lastRaiserId: null,
     showBetSizes: false,
@@ -168,6 +193,36 @@ export function HandWizard({
                 setWizardStep(19); // Hand Outcome
             };
 
+            const completePreflopFromHistory = (history: string[]) => {
+                const heroLine = parseHeroPreflopLine(history);
+                const syncedVillains = syncVillainActionsFromLog(
+                    hand.villains,
+                    history,
+                    hand.villainCount
+                );
+                const sanitized = sanitizeVillainPositions(
+                    syncedVillains,
+                    positions,
+                    hand.heroPositionIndex,
+                    heroLine || hand.preflopAction,
+                    hand.villainCount
+                );
+                const heroFolded =
+                    heroLine === "Fold" || hand.preflopFolded;
+                setHand((prev) => ({
+                    ...prev,
+                    preflopActions: history,
+                    preflopAction: heroLine || prev.preflopAction,
+                    villains: sanitized,
+                    preflopFolded: heroFolded || prev.preflopFolded,
+                    potByStreet: {
+                        ...prev.potByStreet,
+                        ...streetState.potByStreet,
+                    },
+                }));
+                setWizardStep(heroFolded ? 19 : 11);
+            };
+
             const initPreflopState = () => {
                 const roster = buildPreflopRoster(
                     positions,
@@ -176,23 +231,22 @@ export function HandWizard({
                     hand.villains,
                     hand.villainCount
                 );
-                const baseState: StreetState = {
-                    street: "preflop",
+                const baseState = createPreflopStreetBase({
                     players: roster,
-                    history: [],
-                    currentActorIndex: 0,
-                    highestBet: 0,
-                    lastRaiserId: null,
-                    showBetSizes: false,
-                    currentActionPending: "",
-                };
-                setStreetState(
-                    seedPreflopFromHeroSummary(
-                        baseState,
-                        hand.preflopAction,
-                        hand.preflopAmount
-                    )
+                });
+                const { state, roundComplete } = buildPreflopStateFromWizard(
+                    hand,
+                    baseState
                 );
+
+                if (roundComplete) {
+                    playHaptic("success");
+                    setStreetState(state);
+                    completePreflopFromHistory(state.history);
+                    return;
+                }
+
+                setStreetState(state);
                 setHand((prev) => ({ ...prev, preflopActions: [] }));
             };
 
@@ -238,15 +292,31 @@ export function HandWizard({
                 const activeOnStreet = roster.filter(p => !p.folded);
                 const sortedActive = activeOnStreet.sort((a, b) => getPostflopWeight(a.position) - getPostflopWeight(b.position));
 
+                const potByStreet = { ...streetState.potByStreet };
+                let pot = streetState.pot ?? PREFLOP_DEAD_POT_BB;
+                if (streetName === "flop") {
+                    pot = potByStreet.preflop ?? pot;
+                } else if (streetName === "turn") {
+                    pot = potByStreet.flop ?? potByStreet.preflop ?? pot;
+                } else if (streetName === "river") {
+                    pot =
+                        potByStreet.turn ??
+                        potByStreet.flop ??
+                        potByStreet.preflop ??
+                        pot;
+                }
+
                 setStreetState({
                     street: streetName,
                     players: sortedActive,
                     history: [],
                     currentActorIndex: 0,
+                    pot,
+                    potByStreet,
                     highestBet: 0,
                     lastRaiserId: null,
                     showBetSizes: false,
-                    currentActionPending: ''
+                    currentActionPending: "",
                 });
             };
 
@@ -292,6 +362,16 @@ export function HandWizard({
                 if (result.activeCount <= 1 || result.roundComplete) {
                     playHaptic("success");
 
+                    setStreetState((prev) => ({
+                        ...prev,
+                        players: result.players,
+                        history: result.history,
+                        pot: result.pot,
+                        potByStreet: result.potByStreet,
+                        highestBet: result.highestBet,
+                        lastRaiserId: result.lastRaiserId,
+                    }));
+
                     if (streetState.street === "preflop") {
                         const heroLine = parseHeroPreflopLine(result.history);
                         const syncedVillains = syncVillainActionsFromLog(
@@ -314,6 +394,10 @@ export function HandWizard({
                             preflopAction: heroLine || prev.preflopAction,
                             villains: sanitized,
                             preflopFolded: heroFolded || prev.preflopFolded,
+                            potByStreet: {
+                                ...prev.potByStreet,
+                                ...result.potByStreet,
+                            },
                         }));
                         setTimeout(() => {
                             if (result.activeCount <= 1 || heroFolded) {
@@ -328,6 +412,10 @@ export function HandWizard({
                     setHand((prev) => ({
                         ...prev,
                         [`${streetState.street}Actions`]: result.history,
+                        potByStreet: {
+                            ...prev.potByStreet,
+                            ...result.potByStreet,
+                        },
                     }));
                     setTimeout(() => {
                         if (result.activeCount <= 1) {
@@ -347,6 +435,8 @@ export function HandWizard({
                     ...prev,
                     players: result.players,
                     history: result.history,
+                    pot: result.pot,
+                    potByStreet: result.potByStreet,
                     currentActorIndex: result.nextActorIndex,
                     highestBet: result.highestBet,
                     lastRaiserId: result.lastRaiserId,
@@ -380,73 +470,106 @@ export function HandWizard({
                 }
             };
 
-            const handleHeroCardInput = (cardIdx: number, key: "rank" | "suit", val: string) => {
-                playHaptic('card');
-                const updatedCards = [...hand.heroCards];
-                updatedCards[cardIdx] = { ...updatedCards[cardIdx], [key]: val };
-                
-                setHand(prev => {
-                    const next = { ...prev, heroCards: updatedCards };
-                    const isCompleted = next.heroCards[cardIdx].rank && next.heroCards[cardIdx].suit;
-                    if (isCompleted) {
-                        setTimeout(() => {
-                            setWizardStep(prevStep => prevStep + 1);
-                        }, 250);
+            const applyCardInput = (
+                slot: CardSlot,
+                key: "rank" | "suit",
+                val: string,
+                onComplete?: () => void
+            ) => {
+                const current = getCardAtSlot(hand, slot);
+                const rank = key === "rank" ? val : current.rank;
+                const suit = key === "suit" ? val : current.suit;
+
+                if (rank && suit && isCardAlreadyUsed(hand, rank, suit, slot)) {
+                    return;
+                }
+
+                playHaptic("card");
+                setHand((prev) => {
+                    let next: Hand = prev;
+
+                    if (slot.zone === "hero") {
+                        const heroCards = [...prev.heroCards];
+                        heroCards[slot.index] = { ...heroCards[slot.index], [key]: val };
+                        next = { ...prev, heroCards };
+                    } else if (slot.zone === "flop") {
+                        const boardFlop = [...prev.boardFlop];
+                        boardFlop[slot.index] = { ...boardFlop[slot.index], [key]: val };
+                        next = { ...prev, boardFlop };
+                    } else if (slot.zone === "turn") {
+                        next = { ...prev, boardTurn: { ...prev.boardTurn, [key]: val } };
+                    } else {
+                        next = { ...prev, boardRiver: { ...prev.boardRiver, [key]: val } };
+                    }
+
+                    const card = getCardAtSlot(next, slot);
+                    if (card.rank && card.suit && onComplete) {
+                        setTimeout(onComplete, 250);
                     }
                     return next;
                 });
+            };
+
+            const handleHeroCardInput = (cardIdx: number, key: "rank" | "suit", val: string) => {
+                applyCardInput(
+                    { zone: "hero", index: cardIdx },
+                    key,
+                    val,
+                    () => setWizardStep((s) => s + 1)
+                );
             };
 
             const handleFlopCardInput = (cardIdx: number, key: "rank" | "suit", val: string) => {
-                playHaptic('card');
-                const updatedFlop = [...hand.boardFlop];
-                updatedFlop[cardIdx] = { ...updatedFlop[cardIdx], [key]: val };
-                
-                setHand(prev => {
-                    const next = { ...prev, boardFlop: updatedFlop };
-                    const isCompleted = next.boardFlop[cardIdx].rank && next.boardFlop[cardIdx].suit;
-                    if (isCompleted) {
-                        setTimeout(() => {
-                            if (cardIdx === 2) {
-                                initStreetState('flop');
-                            }
-                            setWizardStep(prevStep => prevStep + 1);
-                        }, 250);
+                applyCardInput(
+                    { zone: "flop", index: cardIdx },
+                    key,
+                    val,
+                    () => {
+                        if (cardIdx === 2) initStreetState("flop");
+                        setWizardStep((s) => s + 1);
                     }
-                    return next;
-                });
+                );
             };
 
             const handleTurnCardInput = (key: "rank" | "suit", val: string) => {
-                playHaptic('card');
-                const updatedTurn = { ...hand.boardTurn, [key]: val };
-                
-                setHand(prev => {
-                    const next = { ...prev, boardTurn: updatedTurn };
-                    if (next.boardTurn.rank && next.boardTurn.suit) {
-                        setTimeout(() => {
-                            initStreetState('turn');
-                            setWizardStep(16); // Turn Live Action
-                        }, 250);
-                    }
-                    return next;
+                applyCardInput({ zone: "turn" }, key, val, () => {
+                    initStreetState("turn");
+                    setWizardStep(16);
                 });
             };
 
             const handleRiverCardInput = (key: "rank" | "suit", val: string) => {
-                playHaptic('card');
-                const updatedRiver = { ...hand.boardRiver, [key]: val };
-                
-                setHand(prev => {
-                    const next = { ...prev, boardRiver: updatedRiver };
-                    if (next.boardRiver.rank && next.boardRiver.suit) {
-                        setTimeout(() => {
-                            initStreetState('river');
-                            setWizardStep(18); // River Live Action
-                        }, 250);
-                    }
-                    return next;
+                applyCardInput({ zone: "river" }, key, val, () => {
+                    initStreetState("river");
+                    setWizardStep(18);
                 });
+            };
+
+            const rankPickerClass = (slot: CardSlot, rank: string, selected: boolean) => {
+                const disabled = isRankDisabled(hand, slot, rank);
+                return `px-2.5 py-1.5 rounded text-xs font-bold font-mono shrink-0 transition-all ${
+                    disabled
+                        ? "opacity-25 cursor-not-allowed bg-slate-950 text-slate-600"
+                        : selected
+                          ? "bg-poker-primary text-slate-950"
+                          : "bg-slate-900 text-slate-400 hover:bg-slate-800"
+                }`;
+            };
+
+            const suitPickerClass = (
+                slot: CardSlot,
+                suitSymbol: string,
+                selected: boolean,
+                suitBg: string
+            ) => {
+                const disabled = isSuitDisabled(hand, slot, suitSymbol);
+                return `p-2.5 rounded-xl border text-sm text-center transition-all ${
+                    disabled
+                        ? "opacity-25 cursor-not-allowed bg-slate-950 border-slate-900 text-slate-600"
+                        : selected
+                          ? `${suitBg} border-2`
+                          : "bg-slate-900 border-slate-900 text-slate-400"
+                }`;
             };
 
             const shouldShowContinueButton = () => {
@@ -617,10 +740,9 @@ export function HandWizard({
                                                 <button
                                                     key={r}
                                                     type="button"
+                                                    disabled={isRankDisabled(hand, { zone: "hero", index: 0 }, r)}
                                                     onClick={() => handleHeroCardInput(0, 'rank', r)}
-                                                    className={`px-2.5 py-1.5 rounded text-xs font-bold font-mono shrink-0 transition-all ${
-                                                        hand.heroCards[0].rank === r ? 'bg-poker-primary text-slate-950' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'
-                                                    }`}
+                                                    className={rankPickerClass({ zone: "hero", index: 0 }, r, hand.heroCards[0].rank === r)}
                                                 >
                                                     {r}
                                                 </button>
@@ -635,10 +757,9 @@ export function HandWizard({
                                                 <button
                                                     key={s.symbol}
                                                     type="button"
+                                                    disabled={isSuitDisabled(hand, { zone: "hero", index: 0 }, s.symbol)}
                                                     onClick={() => handleHeroCardInput(0, 'suit', s.symbol)}
-                                                    className={`p-2.5 rounded-xl border text-sm text-center transition-all ${
-                                                        hand.heroCards[0].suit === s.symbol ? `${s.bg} border-2` : 'bg-slate-900 border-slate-900 text-slate-400'
-                                                    }`}
+                                                    className={suitPickerClass({ zone: "hero", index: 0 }, s.symbol, hand.heroCards[0].suit === s.symbol, s.bg)}
                                                 >
                                                     <span className={s.color}>{s.symbol} {s.name}</span>
                                                 </button>
@@ -681,10 +802,9 @@ export function HandWizard({
                                                 <button
                                                     key={r}
                                                     type="button"
+                                                    disabled={isRankDisabled(hand, { zone: "hero", index: 1 }, r)}
                                                     onClick={() => handleHeroCardInput(1, 'rank', r)}
-                                                    className={`px-2.5 py-1.5 rounded text-xs font-bold font-mono shrink-0 transition-all ${
-                                                        hand.heroCards[1].rank === r ? 'bg-poker-primary text-slate-950' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'
-                                                    }`}
+                                                    className={rankPickerClass({ zone: "hero", index: 1 }, r, hand.heroCards[1].rank === r)}
                                                 >
                                                     {r}
                                                 </button>
@@ -699,10 +819,9 @@ export function HandWizard({
                                                 <button
                                                     key={s.symbol}
                                                     type="button"
+                                                    disabled={isSuitDisabled(hand, { zone: "hero", index: 1 }, s.symbol)}
                                                     onClick={() => handleHeroCardInput(1, 'suit', s.symbol)}
-                                                    className={`p-2.5 rounded-xl border text-sm text-center transition-all ${
-                                                        hand.heroCards[1].suit === s.symbol ? `${s.bg} border-2` : 'bg-slate-900 border-slate-900 text-slate-400'
-                                                    }`}
+                                                    className={suitPickerClass({ zone: "hero", index: 1 }, s.symbol, hand.heroCards[1].suit === s.symbol, s.bg)}
                                                 >
                                                     <span className={s.color}>{s.symbol} {s.name}</span>
                                                 </button>
@@ -736,6 +855,7 @@ export function HandWizard({
                                                     }));
                                                     setTimeout(() => setWizardStep(8), 150);
                                                 } else {
+                                                    setPreflopCustomOpen(false);
                                                     updateHandState('preflopAction', act);
                                                 }
                                             }}
@@ -750,53 +870,105 @@ export function HandWizard({
 
                                 {hand.preflopAction && hand.preflopAction !== 'Fold' && hand.preflopAction !== 'Limp' && (
                                     <div className="space-y-3 pt-4 border-t border-slate-900 animate-fadeIn">
-                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest font-semibold block">Select Bet Sizing</label>
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest font-semibold block">
+                                            Select open size (BB)
+                                        </label>
 
-                                        <div className="grid grid-cols-4 gap-2">
-                                            {['Small', 'Standard', 'Large', 'All-In'].map(size => (
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {PREFLOP_BB_SIZINGS.map((size) => {
+                                                const amount = preflopBbToAmount(size.bb);
+                                                const dollarHint =
+                                                    typeof size.bb === "number"
+                                                        ? formatBbAsDollars(size.bb, bigBlind)
+                                                        : null;
+                                                return (
                                                 <button
-                                                    key={size}
+                                                    key={size.label}
                                                     type="button"
                                                     onClick={() => {
                                                         playHaptic('success');
-                                                        updateHandState('preflopAmount', size);
+                                                        setPreflopCustomOpen(false);
+                                                        updateHandState('preflopAmount', amount);
                                                         setTimeout(() => setWizardStep(8), 150);
                                                     }}
-                                                    className={`py-3 rounded-xl text-xs font-bold border transition-all ${
-                                                        hand.preflopAmount === size
+                                                    className={`py-3 rounded-xl text-xs font-bold border transition-all flex flex-col items-center gap-0.5 ${
+                                                        hand.preflopAmount === amount && !preflopCustomOpen
                                                             ? 'bg-poker-accent text-slate-950 border-poker-accent glow-gold'
                                                             : 'bg-slate-950 border-slate-900 text-slate-400 hover:border-slate-800'
                                                     }`}
                                                 >
-                                                    {size}
+                                                    <span>{size.label}</span>
+                                                    {dollarHint && (
+                                                        <span className="text-[9px] opacity-80">{dollarHint}</span>
+                                                    )}
                                                 </button>
-                                            ))}
+                                            );
+                                            })}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    playHaptic('click');
+                                                    setPreflopCustomOpen(true);
+                                                    updateHandState('preflopAmount', '');
+                                                }}
+                                                className={`py-3 rounded-xl text-xs font-bold border transition-all ${
+                                                    preflopCustomOpen ||
+                                                    (hand.preflopAmount &&
+                                                        !isPresetPreflopBbAmount(hand.preflopAmount))
+                                                        ? 'bg-poker-accent text-slate-950 border-poker-accent glow-gold'
+                                                        : 'bg-slate-950 border-slate-900 text-slate-400 hover:border-slate-800'
+                                                }`}
+                                            >
+                                                Custom
+                                            </button>
                                         </div>
 
-                                        <div className="space-y-2 pt-2">
-                                            <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Or custom action amount</span>
-                                            <div className="flex gap-2">
-                                                <input
-                                                    type="text"
-                                                    placeholder="e.g. 15 BB or $30"
-                                                    value={['Small', 'Standard', 'Large', 'All-In'].includes(hand.preflopAmount) ? '' : hand.preflopAmount}
-                                                    onChange={(e) => updateHandState('preflopAmount', e.target.value)}
-                                                    className="flex-1 p-3 rounded-xl bg-slate-950 border border-slate-900 focus:border-poker-primary text-white text-xs focus:outline-none"
-                                                />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        if (hand.preflopAmount) {
-                                                            playHaptic('success');
-                                                            setWizardStep(8);
+                                        {preflopCustomOpen && (
+                                            <div className="space-y-2 pt-1 animate-fadeIn">
+                                                <span className="text-[10px] text-slate-500 uppercase tracking-widest block">
+                                                    Custom size (BB)
+                                                </span>
+                                                <div className="flex gap-2">
+                                                    <input
+                                                        type="number"
+                                                        inputMode="decimal"
+                                                        step="0.5"
+                                                        min="0.5"
+                                                        placeholder="e.g. 7.5"
+                                                        value={
+                                                            hand.preflopAmount &&
+                                                            !isPresetPreflopBbAmount(hand.preflopAmount)
+                                                                ? hand.preflopAmount
+                                                                : ''
                                                         }
-                                                    }}
-                                                    className="px-4 bg-poker-primary text-slate-950 rounded-xl font-bold text-xs"
-                                                >
-                                                    Confirm
-                                                </button>
+                                                        onChange={(e) =>
+                                                            updateHandState('preflopAmount', e.target.value)
+                                                        }
+                                                        className="flex-1 p-3 rounded-xl bg-slate-950 border border-slate-900 focus:border-poker-primary text-white text-xs focus:outline-none"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const bb = Number(hand.preflopAmount);
+                                                            if (bb > 0) {
+                                                                playHaptic('success');
+                                                                setWizardStep(8);
+                                                            }
+                                                        }}
+                                                        className="px-4 bg-poker-primary text-slate-950 rounded-xl font-bold text-xs"
+                                                    >
+                                                        Confirm
+                                                    </button>
+                                                </div>
+                                                {hand.preflopAmount &&
+                                                    !isPresetPreflopBbAmount(hand.preflopAmount) &&
+                                                    Number(hand.preflopAmount) > 0 && (
+                                                    <p className="text-[10px] text-slate-500 text-center">
+                                                        ≈ {formatBbAsDollars(Number(hand.preflopAmount), bigBlind)}
+                                                    </p>
+                                                )}
                                             </div>
-                                        </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -857,7 +1029,9 @@ export function HandWizard({
                                         <span className="text-[9px] text-sky-400 font-bold uppercase tracking-widest">Your preflop line (step 7)</span>
                                         <p className="text-sm font-black text-sky-200">
                                             {hand.preflopAction}
-                                            {hand.preflopAmount ? ` · ${hand.preflopAmount}` : ""}
+                                            {hand.preflopAmount
+                                                ? ` · ${formatPreflopSizing(hand.preflopAmount)}`
+                                                : ""}
                                         </p>
                                         {!heroPreflopActsBeforeVillains(hand.preflopAction) && (
                                             <p className="text-[10px] text-slate-500 leading-relaxed">
@@ -1023,10 +1197,9 @@ export function HandWizard({
                                                 <button
                                                     key={r}
                                                     type="button"
+                                                    disabled={isRankDisabled(hand, { zone: "flop", index: 0 }, r)}
                                                     onClick={() => handleFlopCardInput(0, 'rank', r)}
-                                                    className={`px-2.5 py-1.5 rounded text-xs font-bold font-mono shrink-0 transition-all ${
-                                                        hand.boardFlop[0].rank === r ? 'bg-poker-primary text-slate-950' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'
-                                                    }`}
+                                                    className={rankPickerClass({ zone: "flop", index: 0 }, r, hand.boardFlop[0].rank === r)}
                                                 >
                                                     {r}
                                                 </button>
@@ -1041,10 +1214,9 @@ export function HandWizard({
                                                 <button
                                                     key={s.symbol}
                                                     type="button"
+                                                    disabled={isSuitDisabled(hand, { zone: "flop", index: 0 }, s.symbol)}
                                                     onClick={() => handleFlopCardInput(0, 'suit', s.symbol)}
-                                                    className={`p-2.5 rounded-xl border text-sm text-center transition-all ${
-                                                        hand.boardFlop[0].suit === s.symbol ? `${s.bg} border-2` : 'bg-slate-900 border-slate-900 text-slate-400'
-                                                    }`}
+                                                    className={suitPickerClass({ zone: "flop", index: 0 }, s.symbol, hand.boardFlop[0].suit === s.symbol, s.bg)}
                                                 >
                                                     <span className={s.color}>{s.symbol} {s.name}</span>
                                                 </button>
@@ -1091,10 +1263,9 @@ export function HandWizard({
                                                 <button
                                                     key={r}
                                                     type="button"
+                                                    disabled={isRankDisabled(hand, { zone: "flop", index: 1 }, r)}
                                                     onClick={() => handleFlopCardInput(1, 'rank', r)}
-                                                    className={`px-2.5 py-1.5 rounded text-xs font-bold font-mono shrink-0 transition-all ${
-                                                        hand.boardFlop[1].rank === r ? 'bg-poker-primary text-slate-950' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'
-                                                    }`}
+                                                    className={rankPickerClass({ zone: "flop", index: 1 }, r, hand.boardFlop[1].rank === r)}
                                                 >
                                                     {r}
                                                 </button>
@@ -1109,10 +1280,9 @@ export function HandWizard({
                                                 <button
                                                     key={s.symbol}
                                                     type="button"
+                                                    disabled={isSuitDisabled(hand, { zone: "flop", index: 1 }, s.symbol)}
                                                     onClick={() => handleFlopCardInput(1, 'suit', s.symbol)}
-                                                    className={`p-2.5 rounded-xl border text-sm text-center transition-all ${
-                                                        hand.boardFlop[1].suit === s.symbol ? `${s.bg} border-2` : 'bg-slate-900 border-slate-900 text-slate-400'
-                                                    }`}
+                                                    className={suitPickerClass({ zone: "flop", index: 1 }, s.symbol, hand.boardFlop[1].suit === s.symbol, s.bg)}
                                                 >
                                                     <span className={s.color}>{s.symbol} {s.name}</span>
                                                 </button>
@@ -1163,10 +1333,9 @@ export function HandWizard({
                                                 <button
                                                     key={r}
                                                     type="button"
+                                                    disabled={isRankDisabled(hand, { zone: "flop", index: 2 }, r)}
                                                     onClick={() => handleFlopCardInput(2, 'rank', r)}
-                                                    className={`px-2.5 py-1.5 rounded text-xs font-bold font-mono shrink-0 transition-all ${
-                                                        hand.boardFlop[2].rank === r ? 'bg-poker-primary text-slate-950' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'
-                                                    }`}
+                                                    className={rankPickerClass({ zone: "flop", index: 2 }, r, hand.boardFlop[2].rank === r)}
                                                 >
                                                     {r}
                                                 </button>
@@ -1181,10 +1350,9 @@ export function HandWizard({
                                                 <button
                                                     key={s.symbol}
                                                     type="button"
+                                                    disabled={isSuitDisabled(hand, { zone: "flop", index: 2 }, s.symbol)}
                                                     onClick={() => handleFlopCardInput(2, 'suit', s.symbol)}
-                                                    className={`p-2.5 rounded-xl border text-sm text-center transition-all ${
-                                                        hand.boardFlop[2].suit === s.symbol ? `${s.bg} border-2` : 'bg-slate-900 border-slate-900 text-slate-400'
-                                                    }`}
+                                                    className={suitPickerClass({ zone: "flop", index: 2 }, s.symbol, hand.boardFlop[2].suit === s.symbol, s.bg)}
                                                 >
                                                     <span className={s.color}>{s.symbol} {s.name}</span>
                                                 </button>
@@ -1210,6 +1378,8 @@ export function HandWizard({
                                 skipToOutcome={skipToOutcome}
                                 getSuitColor={getSuitColor}
                                 hand={hand}
+                                potBb={streetState.pot}
+                                bigBlind={bigBlind}
                             />
                         )}
 
@@ -1237,10 +1407,9 @@ export function HandWizard({
                                                 <button
                                                     key={r}
                                                     type="button"
+                                                    disabled={isRankDisabled(hand, { zone: "turn" }, r)}
                                                     onClick={() => handleTurnCardInput('rank', r)}
-                                                    className={`px-2.5 py-1.5 rounded text-xs font-bold font-mono shrink-0 transition-all ${
-                                                        hand.boardTurn.rank === r ? 'bg-poker-primary text-slate-950' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'
-                                                    }`}
+                                                    className={rankPickerClass({ zone: "turn" }, r, hand.boardTurn.rank === r)}
                                                 >
                                                     {r}
                                                 </button>
@@ -1255,10 +1424,9 @@ export function HandWizard({
                                                 <button
                                                     key={s.symbol}
                                                     type="button"
+                                                    disabled={isSuitDisabled(hand, { zone: "turn" }, s.symbol)}
                                                     onClick={() => handleTurnCardInput('suit', s.symbol)}
-                                                    className={`p-2.5 rounded-xl border text-sm text-center transition-all ${
-                                                        hand.boardTurn.suit === s.symbol ? `${s.bg} border-2` : 'bg-slate-900 border-slate-900 text-slate-400'
-                                                    }`}
+                                                    className={suitPickerClass({ zone: "turn" }, s.symbol, hand.boardTurn.suit === s.symbol, s.bg)}
                                                 >
                                                     <span className={s.color}>{s.symbol} {s.name}</span>
                                                 </button>
@@ -1284,6 +1452,8 @@ export function HandWizard({
                                 skipToOutcome={skipToOutcome}
                                 getSuitColor={getSuitColor}
                                 hand={hand}
+                                potBb={streetState.pot}
+                                bigBlind={bigBlind}
                             />
                         )}
 
@@ -1311,10 +1481,9 @@ export function HandWizard({
                                                 <button
                                                     key={r}
                                                     type="button"
+                                                    disabled={isRankDisabled(hand, { zone: "river" }, r)}
                                                     onClick={() => handleRiverCardInput('rank', r)}
-                                                    className={`px-2.5 py-1.5 rounded text-xs font-bold font-mono shrink-0 transition-all ${
-                                                        hand.boardRiver.rank === r ? 'bg-poker-primary text-slate-950' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'
-                                                    }`}
+                                                    className={rankPickerClass({ zone: "river" }, r, hand.boardRiver.rank === r)}
                                                 >
                                                     {r}
                                                 </button>
@@ -1329,10 +1498,9 @@ export function HandWizard({
                                                 <button
                                                     key={s.symbol}
                                                     type="button"
+                                                    disabled={isSuitDisabled(hand, { zone: "river" }, s.symbol)}
                                                     onClick={() => handleRiverCardInput('suit', s.symbol)}
-                                                    className={`p-2.5 rounded-xl border text-sm text-center transition-all ${
-                                                        hand.boardRiver.suit === s.symbol ? `${s.bg} border-2` : 'bg-slate-900 border-slate-900 text-slate-400'
-                                                    }`}
+                                                    className={suitPickerClass({ zone: "river" }, s.symbol, hand.boardRiver.suit === s.symbol, s.bg)}
                                                 >
                                                     <span className={s.color}>{s.symbol} {s.name}</span>
                                                 </button>
@@ -1358,6 +1526,8 @@ export function HandWizard({
                                 skipToOutcome={skipToOutcome}
                                 getSuitColor={getSuitColor}
                                 hand={hand}
+                                potBb={streetState.pot}
+                                bigBlind={bigBlind}
                             />
                         )}
 
@@ -1416,35 +1586,51 @@ export function HandWizard({
                                     />
                                 </div>
 
-                                <div className="space-y-2">
-                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Review Tags</label>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {REVIEW_TAGS.map(tag => {
-                                            const isSelected = hand.tags.includes(tag);
-                                            return (
-                                                <button
-                                                    key={tag}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        playHaptic('click');
-                                                        const activeTags = [...hand.tags];
-                                                        if (isSelected) {
-                                                            const filtered = activeTags.filter(t => t !== tag);
-                                                            updateHandState('tags', filtered);
-                                                        } else {
-                                                            activeTags.push(tag);
-                                                            updateHandState('tags', activeTags);
-                                                        }
-                                                    }}
-                                                    className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                                                        isSelected ? 'bg-poker-primary/20 text-poker-primary border border-poker-primary/40' : 'bg-slate-950 text-slate-500 hover:bg-slate-900 border border-transparent'
-                                                    }`}
-                                                >
-                                                    #{tag}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
+                                <div className="space-y-3">
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Review Tags</label>
+                                    {(
+                                        Object.entries(REVIEW_TAG_GROUPS) as [
+                                            string,
+                                            readonly string[],
+                                        ][]
+                                    ).map(([groupLabel, tags]) => (
+                                        <div key={groupLabel} className="space-y-1.5">
+                                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest block">
+                                                {groupLabel}
+                                            </span>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {tags.map((tag) => {
+                                                    const isSelected = hand.tags.includes(tag);
+                                                    return (
+                                                        <button
+                                                            key={tag}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                playHaptic('click');
+                                                                const activeTags = [...hand.tags];
+                                                                if (isSelected) {
+                                                                    updateHandState(
+                                                                        'tags',
+                                                                        activeTags.filter((t) => t !== tag)
+                                                                    );
+                                                                } else {
+                                                                    activeTags.push(tag);
+                                                                    updateHandState('tags', activeTags);
+                                                                }
+                                                            }}
+                                                            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                                                                isSelected
+                                                                    ? 'bg-poker-primary/20 text-poker-primary border border-poker-primary/40'
+                                                                    : 'bg-slate-950 text-slate-500 hover:bg-slate-900 border border-transparent'
+                                                            }`}
+                                                        >
+                                                            #{tag}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         )}
@@ -1476,7 +1662,15 @@ export function HandWizard({
                             ) : wizardStep === 20 ? (
                                 <button
                                     type="button"
-                                    onClick={() => onSave(hand)}
+                                    onClick={() =>
+                                        onSave({
+                                            ...hand,
+                                            potByStreet: {
+                                                ...hand.potByStreet,
+                                                ...streetState.potByStreet,
+                                            },
+                                        })
+                                    }
                                     className="flex-1 py-3.5 bg-poker-primary text-slate-950 font-black rounded-xl text-xs transition-colors glow-green"
                                 >
                                     {isEditing ? "SAVE CHANGES" : "SAVE HAND"}

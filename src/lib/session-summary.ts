@@ -1,5 +1,12 @@
-import { getHandNetChange } from "./session-math";
-import type { Card, Hand, Session, Villain } from "./types";
+import { formatPreflopSizing } from "./constants";
+import {
+  getStreetStartPotBb,
+  resolveContributionBbForAction,
+} from "./betting-round";
+import { getHandNetChange, normalizeSession } from "./session-math";
+import type { Card, Hand, PotByStreet, Session, Villain } from "./types";
+
+const MONEY_ACTIONS = new Set(["Limp", "Call", "Bet", "Raise"]);
 
 function formatCard(card: Card): string {
   if (!card?.rank) return "";
@@ -23,15 +30,93 @@ function formatBoard(hand: Hand): string | null {
   return parts.join(" · ");
 }
 
-function formatActionBlock(label: string, actions: string[] | undefined): string[] {
+function bbToDollars(bb: number, bigBlind: number): string {
+  const amount = Math.round(bb * bigBlind * 100) / 100;
+  return `$${amount}`;
+}
+
+function formatSizingBracket(sizing: string, street: keyof PotByStreet): string {
+  if (!sizing) return "";
+  if (street === "preflop") {
+    const formatted = formatPreflopSizing(sizing);
+    return formatted ? ` [${formatted}]` : ` [${sizing}]`;
+  }
+  return ` [${sizing}]`;
+}
+
+type ParsedAction = {
+  label: string;
+  action: string;
+  sizing?: string;
+};
+
+function parseLiveActionLine(line: string): ParsedAction | null {
+  const match = line.match(/^(Hero|Villain \d+) \([^)]+\) (\S+)(?: \[(.+)\])?$/);
+  if (!match) return null;
+  return {
+    label: match[1],
+    action: match[2],
+    sizing: match[3],
+  };
+}
+
+function formatStreetActionLines(
+  street: keyof PotByStreet,
+  actions: string[] | undefined,
+  potByStreet: PotByStreet,
+  bigBlind: number
+): string[] {
   if (!actions?.length) return [];
-  return [
-    `${label}:`,
-    ...actions.map((line) => {
-      const stripped = line.replace(/^(Hero|Villain \d+) \([^)]+\) /, "$1 ");
-      return `  • ${stripped}`;
-    }),
-  ];
+
+  let potBb = getStreetStartPotBb(street, potByStreet);
+  const potHeader = bbToDollars(potBb, bigBlind);
+  const lines: string[] = [`${capitalizeStreet(street)}: (pot ${potHeader})`];
+
+  const contributions: Record<string, number> = {};
+  let highestBetBb = 0;
+
+  for (const raw of actions) {
+    const parsed = parseLiveActionLine(raw);
+    if (!parsed) {
+      lines.push(`  • ${raw}`);
+      continue;
+    }
+
+    const potAtActionStart = potBb;
+    const before = contributions[parsed.label] ?? 0;
+    const sizing = parsed.sizing ?? "";
+
+    let dollarSuffix = "";
+    if (MONEY_ACTIONS.has(parsed.action)) {
+      const target = resolveContributionBbForAction(
+        street,
+        parsed.action,
+        sizing,
+        potAtActionStart,
+        highestBetBb
+      );
+      if (target != null) {
+        const increment = Math.max(0, target - before);
+        if (increment > 0) {
+          potBb += increment;
+          dollarSuffix = ` — ${bbToDollars(increment, bigBlind)}`;
+        }
+        contributions[parsed.label] = target;
+        highestBetBb = Math.max(highestBetBb, target);
+      }
+    }
+
+    const sizingPart = sizing ? formatSizingBracket(sizing, street) : "";
+    lines.push(
+      `  • ${parsed.label} ${parsed.action}${sizingPart}${dollarSuffix}`
+    );
+  }
+
+  return lines;
+}
+
+function capitalizeStreet(street: keyof PotByStreet): string {
+  return street.charAt(0).toUpperCase() + street.slice(1);
 }
 
 function formatVillains(villains: Villain[], count: number): string[] {
@@ -39,18 +124,21 @@ function formatVillains(villains: Villain[], count: number): string[] {
   const lines: string[] = ["Villains:"];
   for (let i = 0; i < count; i++) {
     const v = villains[i] ?? {};
+    const villainAction =
+      v.action == null || v.action === "" ? "Unknown" : v.action;
     const parts: string[] = [`  • V${i + 1}`];
     if (v.position) parts.push(v.position);
     if (v.tag) parts.push(`(${v.tag})`);
-    if (v.action) parts.push(`— ${v.action} pre`);
+    parts.push(`— ${villainAction} pre`);
     if (v.note) parts.push(`— note: ${v.note}`);
     lines.push(parts.join(" "));
   }
   return lines;
 }
 
-function formatHand(hand: Hand, handNumber: number): string {
+function formatHand(hand: Hand, handNumber: number, bigBlind: number): string {
   const lines: string[] = [];
+  const potByStreet = hand.potByStreet ?? {};
   const header = hand.effectiveStack
     ? `${hand.heroPosition} (${hand.effectiveStack})`
     : hand.heroPosition || "—";
@@ -67,20 +155,29 @@ function formatHand(hand: Hand, handNumber: number): string {
   }
 
   if (hand.preflopAction && !hand.preflopActions?.length) {
-    const sizing = hand.preflopAmount ? ` ${hand.preflopAmount}` : "";
+    const sizing = hand.preflopAmount
+      ? ` ${formatPreflopSizing(hand.preflopAmount)}`
+      : "";
     lines.push(`Hero preflop (summary): ${hand.preflopAction}${sizing}`);
   }
 
-  lines.push(...formatActionBlock("Preflop", hand.preflopActions));
-  lines.push(...formatActionBlock("Flop", hand.flopActions));
-  lines.push(...formatActionBlock("Turn", hand.turnActions));
-  lines.push(...formatActionBlock("River", hand.riverActions));
+  lines.push(
+    ...formatStreetActionLines("preflop", hand.preflopActions, potByStreet, bigBlind)
+  );
+  lines.push(
+    ...formatStreetActionLines("flop", hand.flopActions, potByStreet, bigBlind)
+  );
+  lines.push(
+    ...formatStreetActionLines("turn", hand.turnActions, potByStreet, bigBlind)
+  );
+  lines.push(
+    ...formatStreetActionLines("river", hand.riverActions, potByStreet, bigBlind)
+  );
 
   lines.push(...formatVillains(hand.villains, hand.villainCount));
 
   const net = getHandNetChange(hand);
-  const netLabel =
-    net >= 0 ? `+$${net}` : `-$${Math.abs(net)}`;
+  const netLabel = net >= 0 ? `+$${net}` : `-$${Math.abs(net)}`;
   lines.push(`Result: ${hand.result || "—"} ${netLabel}`);
 
   if (hand.tags.length > 0) {
@@ -94,7 +191,10 @@ function formatHand(hand: Hand, handNumber: number): string {
 }
 
 export function formatSessionSummary(session: Session): string {
-  const start = new Date(session.startTime);
+  const normalized = normalizeSession(session);
+  const bigBlind = normalized.bigBlind;
+
+  const start = new Date(normalized.startTime);
   const dateStr = start.toLocaleString(undefined, {
     weekday: "short",
     month: "short",
@@ -107,13 +207,13 @@ export function formatSessionSummary(session: Session): string {
   const header = [
     "4 Bigs — Session Log",
     "",
-    `Room: ${session.roomName || "—"}`,
+    `Room: ${normalized.roomName || "—"}`,
     `Date: ${dateStr}`,
-    `Stakes: ${session.stakes} · ${session.tableSize}-Max · Start stack: ${session.startingStack}`,
+    `Stakes: ${normalized.stakes} · ${normalized.tableSize}-Max · Start stack: ${normalized.startingStack}`,
   ];
 
-  if (session.endTime) {
-    const end = new Date(session.endTime).toLocaleString(undefined, {
+  if (normalized.endTime) {
+    const end = new Date(normalized.endTime).toLocaleString(undefined, {
       month: "short",
       day: "numeric",
       hour: "numeric",
@@ -124,20 +224,20 @@ export function formatSessionSummary(session: Session): string {
     header.push("Status: In progress");
   }
 
-  const net = session.netAmount ?? 0;
+  const net = normalized.netAmount ?? 0;
   header.push(
     `Net P&L: ${net >= 0 ? `+$${net}` : `-$${Math.abs(net)}`}`,
-    `Hands: ${session.hands?.length ?? 0}`,
+    `Hands: ${normalized.hands?.length ?? 0}`,
     ""
   );
 
-  const hands = session.hands ?? [];
+  const hands = normalized.hands ?? [];
   if (hands.length === 0) {
     return [...header, "(No hands logged yet)"].join("\n");
   }
 
   const handBlocks = hands.map((hand, i) =>
-    formatHand(hand, i + 1)
+    formatHand(hand, i + 1, bigBlind)
   );
 
   return [...header, handBlocks.join("\n\n────────────────\n\n")].join("\n");

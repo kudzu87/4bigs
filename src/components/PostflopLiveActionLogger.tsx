@@ -1,7 +1,12 @@
 "use client";
 
+import { formatPostflopSizingLabel, POSTFLOP_SIZINGS } from "@/lib/constants";
+import {
+  getValidPostflopActions,
+  resolvePostflopWagerBb,
+} from "@/lib/betting-round";
 import { playHaptic } from "@/lib/haptics";
-import { getValidPostflopActions } from "@/lib/betting-round";
+import { formatBbAsDollars } from "@/lib/session-math";
 import type { Hand, StreetState } from "@/lib/types";
 
 export type PostflopLiveActionLoggerProps = {
@@ -11,6 +16,9 @@ export type PostflopLiveActionLoggerProps = {
   skipToOutcome: () => void;
   getSuitColor: (suit: string) => string;
   hand: Hand;
+  /** Current pot in BB (updates as actions are logged on this street). */
+  potBb: number;
+  bigBlind: number;
 };
 
 export function PostflopLiveActionLogger({
@@ -20,15 +28,17 @@ export function PostflopLiveActionLogger({
   skipToOutcome,
   getSuitColor,
   hand,
+  potBb,
+  bigBlind,
 }: PostflopLiveActionLoggerProps) {
+  const customInputId = `postflopCustomSizing-${streetState.street}`;
   const currentActor = streetState.players[streetState.currentActorIndex];
   const hasBetOccurred = streetState.highestBet > 0;
   const validActions = currentActor
     ? getValidPostflopActions(currentActor, streetState.highestBet)
     : [];
 
-  const BET_SIZINGS = ["Small", "1/3", "1/2", "3/4", "pot", "all-in", "custom"];
-  const RAISE_SIZINGS = ["3x", "4x", "pot", "all-in", "custom"];
+  const sizingOptions = POSTFLOP_SIZINGS;
 
   if (!currentActor) {
     return (
@@ -67,9 +77,14 @@ export function PostflopLiveActionLogger({
             )}
           </div>
         </div>
-        <span className="text-[10px] text-poker-accent font-black uppercase tracking-widest">
-          {streetState.street} street
-        </span>
+        <div className="text-right">
+          <span className="text-[10px] text-poker-accent font-black uppercase tracking-widest block">
+            {streetState.street} street
+          </span>
+          <span className="text-[9px] text-slate-400 font-bold">
+            Pot {formatBbAsDollars(potBb, bigBlind)} ({potBb} BB)
+          </span>
+        </div>
       </div>
 
       <div className="p-4 rounded-3xl bg-slate-950/80 border border-slate-800 flex flex-col items-center justify-center text-center space-y-2 relative shadow-lg">
@@ -182,49 +197,77 @@ export function PostflopLiveActionLogger({
                 Cancel
               </button>
             </div>
-            <div className="grid grid-cols-4 gap-1.5">
-              {(streetState.currentActionPending === "Bet" ? BET_SIZINGS : RAISE_SIZINGS).map((sz) => (
-                <button
-                  key={sz}
-                  type="button"
-                  onClick={() => {
-                    if (sz !== "custom") {
-                      playHaptic("success");
-                      handlePlayerAction(streetState.currentActionPending, sz);
-                    } else {
-                      setStreetState((prev) => ({
-                        ...prev,
-                        currentActionPendingCustom: true,
-                      }));
-                    }
-                  }}
-                  className="py-2.5 bg-slate-900 border border-slate-800 text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-800 transition-all"
-                >
-                  {sz}
-                </button>
-              ))}
+            <div className="grid grid-cols-3 gap-1.5">
+              {sizingOptions.map((sz) => {
+                const wagerBb =
+                  sz !== "custom" && sz !== "all-in"
+                    ? resolvePostflopWagerBb(potBb, sz)
+                    : null;
+                const dollarHint =
+                  wagerBb != null ? formatBbAsDollars(wagerBb, bigBlind) : null;
+
+                return (
+                  <button
+                    key={sz}
+                    type="button"
+                    onClick={() => {
+                      if (sz !== "custom") {
+                        playHaptic("success");
+                        handlePlayerAction(streetState.currentActionPending, sz);
+                      } else {
+                        setStreetState((prev) => ({
+                          ...prev,
+                          currentActionPendingCustom: true,
+                        }));
+                      }
+                    }}
+                    className="py-2.5 bg-slate-900 border border-slate-800 text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-800 transition-all flex flex-col items-center gap-0.5"
+                  >
+                    <span>{formatPostflopSizingLabel(sz)}</span>
+                    {dollarHint && (
+                      <span className="text-[9px] text-poker-accent font-extrabold">
+                        {dollarHint}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
             {streetState.currentActionPendingCustom && (
-              <div className="flex gap-2 pt-1">
-                <input
-                  type="text"
-                  placeholder="Custom amount (e.g. 15 BB)"
-                  id="customSizingInput"
-                  className="flex-1 p-3 rounded-xl bg-slate-900 border border-slate-900 focus:border-poker-primary text-white text-xs focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const el = document.getElementById("customSizingInput") as HTMLInputElement | null;
-                    if (el?.value) {
-                      playHaptic("success");
-                      handlePlayerAction(streetState.currentActionPending, el.value);
-                    }
-                  }}
-                  className="px-4 bg-poker-primary text-slate-950 rounded-xl font-bold text-xs"
-                >
-                  Confirm
-                </button>
+              <div className="space-y-2 pt-1">
+                <span className="text-[9px] text-slate-500 uppercase tracking-widest block">
+                  Custom size (BB) — {formatBbAsDollars(potBb, bigBlind)} pot
+                </span>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.5"
+                    min="0.5"
+                    placeholder="e.g. 7.5"
+                    id={customInputId}
+                    className="flex-1 p-3 rounded-xl bg-slate-900 border border-slate-900 focus:border-poker-primary text-white text-xs focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const el = document.getElementById(
+                        customInputId
+                      ) as HTMLInputElement | null;
+                      const raw = el?.value?.trim();
+                      if (raw && Number(raw) > 0) {
+                        playHaptic("success");
+                        handlePlayerAction(
+                          streetState.currentActionPending,
+                          raw
+                        );
+                      }
+                    }}
+                    className="px-4 bg-poker-primary text-slate-950 rounded-xl font-bold text-xs"
+                  >
+                    Confirm
+                  </button>
+                </div>
               </div>
             )}
           </div>

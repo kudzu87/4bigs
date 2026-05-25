@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { playHaptic } from "@/lib/haptics";
 import { getPositionsForSize } from "@/lib/positions";
-import { recalculateSessionNet } from "@/lib/session-math";
+import {
+  normalizeSession,
+  parseBigBlindFromStakes,
+  recalculateSessionNet,
+} from "@/lib/session-math";
 import {
   buildSessionWithDraft,
   clearActiveSession,
@@ -145,6 +149,7 @@ export function FourBigsApp() {
       id: Date.now().toString(),
       startTime: new Date().toISOString(),
       stakes: setupData.stakes,
+      bigBlind: parseBigBlindFromStakes(setupData.stakes),
       tableSize: Number(setupData.tableSize),
       roomName: setupData.roomName || "Unnamed Poker Room",
       startingStack: setupData.startingStack || "100 BB",
@@ -188,11 +193,11 @@ export function FourBigsApp() {
       updatedHands = [handData, ...activeSession.hands];
     }
 
-    const updatedSession: Session = {
+    const updatedSession = normalizeSession({
       ...activeSession,
       hands: updatedHands,
       netAmount: recalculateSessionNet(updatedHands),
-    };
+    });
     delete updatedSession.draft;
 
     setActiveSession(updatedSession);
@@ -387,6 +392,7 @@ export function FourBigsApp() {
             onCancel={cancelHandWizard}
             isEditing={!!editingHandId}
             onDraftSync={setCurrentHand}
+            bigBlind={activeSession.bigBlind ?? parseBigBlindFromStakes(activeSession.stakes)}
           />
         )}
 
