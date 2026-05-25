@@ -14,6 +14,23 @@ export const PREFLOP_DEAD_POT_BB = 1.5;
 const DEFAULT_OPEN_BB = 2;
 const DEFAULT_MIN_RAISE_BB = 2;
 
+/** Parse hand effective stack (e.g. "100 BB") to BB count. */
+export function parseEffectiveStackBb(effectiveStack: string): number | null {
+  if (!effectiveStack?.trim()) return null;
+  const match = effectiveStack.trim().match(/^([\d.]+)\s*bb$/i);
+  if (match) return Number(match[1]);
+  const num = Number(effectiveStack.trim());
+  return Number.isFinite(num) && num > 0 ? num : null;
+}
+
+export function isAllInAction(actionType: string, sizing: string): boolean {
+  return actionType === "All-In" || sizing === "all-in";
+}
+
+function resolveAllInContributionBb(player: StreetPlayer): number {
+  return player.contribution + player.remainingStack;
+}
+
 export function createPreflopStreetBase(
   overrides: Partial<StreetState> = {}
 ): StreetState {
@@ -65,8 +82,12 @@ export function resolvePostflopWagerBb(
 function resolvePreflopContributionBb(
   actionType: string,
   sizing: string,
-  highestBetBb: number
+  highestBetBb: number,
+  player: StreetPlayer
 ): number | null {
+  if (isAllInAction(actionType, sizing)) {
+    return resolveAllInContributionBb(player);
+  }
   const bb = parseBbMultiplier(sizing);
   if (actionType === "Limp") return 1;
   if (actionType === "Call") return highestBetBb;
@@ -85,8 +106,11 @@ function resolvePostflopContributionBb(
   sizing: string,
   potAtActionStart: number,
   highestBetBb: number,
-  currentContributionBb: number
+  player: StreetPlayer
 ): number | null {
+  if (isAllInAction(actionType, sizing)) {
+    return resolveAllInContributionBb(player);
+  }
   if (actionType === "Call") return highestBetBb;
   const wager = resolvePostflopWagerBb(potAtActionStart, sizing);
   if (actionType === "Bet") {
@@ -105,10 +129,18 @@ function resolveContributionBb(
   sizing: string,
   player: StreetPlayer
 ): number | null {
+  if (isAllInAction(actionType, sizing)) {
+    return resolveAllInContributionBb(player);
+  }
   if (!["Limp", "Call", "Bet", "Raise"].includes(actionType)) return null;
 
   if (state.street === "preflop") {
-    return resolvePreflopContributionBb(actionType, sizing, state.highestBet);
+    return resolvePreflopContributionBb(
+      actionType,
+      sizing,
+      state.highestBet,
+      player
+    );
   }
 
   return resolvePostflopContributionBb(
@@ -116,7 +148,7 @@ function resolveContributionBb(
     sizing,
     state.pot,
     state.highestBet,
-    player.contribution
+    player
   );
 }
 
@@ -156,16 +188,37 @@ export function resolveContributionBbForAction(
   potAtActionStart: number,
   highestBetBb: number
 ): number | null {
+  if (isAllInAction(actionType, sizing)) return null;
   if (!["Limp", "Call", "Bet", "Raise"].includes(actionType)) return null;
   if (street === "preflop") {
-    return resolvePreflopContributionBb(actionType, sizing, highestBetBb);
+    return resolvePreflopContributionBb(actionType, sizing, highestBetBb, {
+      id: "",
+      label: "",
+      position: "",
+      isHero: false,
+      folded: false,
+      contribution: 0,
+      remainingStack: 0,
+      lastAction: "None",
+      actedThisRound: false,
+    });
   }
   return resolvePostflopContributionBb(
     actionType,
     sizing,
     potAtActionStart,
     highestBetBb,
-    0
+    {
+      id: "",
+      label: "",
+      position: "",
+      isHero: false,
+      folded: false,
+      contribution: 0,
+      remainingStack: 0,
+      lastAction: "None",
+      actedThisRound: false,
+    }
   );
 }
 
@@ -174,8 +227,10 @@ export function buildPreflopRoster(
   heroPosition: string,
   heroPositionIndex: number | null,
   villains: { position?: string }[],
-  villainCount: number
+  villainCount: number,
+  effectiveStackBb: number | null = null
 ): StreetPlayer[] {
+  const stackBb = effectiveStackBb ?? 0;
   const roster: StreetPlayer[] = [
     {
       id: "hero",
@@ -184,6 +239,7 @@ export function buildPreflopRoster(
       isHero: true,
       folded: false,
       contribution: 0,
+      remainingStack: stackBb,
       lastAction: "None",
       actedThisRound: false,
     },
@@ -200,6 +256,7 @@ export function buildPreflopRoster(
       isHero: false,
       folded: false,
       contribution: 0,
+      remainingStack: stackBb,
       lastAction: "None",
       actedThisRound: false,
     });
@@ -229,7 +286,12 @@ function getWizardPreflopSizing(
   player: StreetPlayer,
   streetAction: PreflopActionType
 ): string {
-  if (!player.isHero) return "";
+  if (!player.isHero) {
+    const idx = Number.parseInt(player.id.replace("villain_", ""), 10);
+    if (hand.villains[idx]?.action === "All-In") return "all-in";
+    return "";
+  }
+  if (hand.preflopAction === "All-In") return "all-in";
   if (streetAction === "Call" || streetAction === "Bet" || streetAction === "Raise") {
     return hand.preflopAmount || "";
   }
@@ -425,54 +487,18 @@ export function getValidPostflopActions(
 
 export function applyActionToPlayer(
   player: StreetPlayer,
-  actionType: string,
-  highestBet: number
+  actionType: string
 ): StreetPlayer {
-  let contribution = player.contribution;
-  let lastAction = actionType;
-
-  if (actionType === "Check") {
-    lastAction = "Check";
-  } else if (actionType === "Limp") {
-    lastAction = "Limp";
-    contribution = Math.max(contribution, 1);
-  } else if (actionType === "Call") {
-    lastAction = "Call";
-    contribution = highestBet;
-  } else if (actionType === "Bet") {
-    lastAction = "Bet";
-    contribution = highestBet === 0 ? 1 : highestBet + 1;
-  } else if (actionType === "Raise") {
-    lastAction = "Raise";
-    contribution = highestBet + 1;
-  } else if (actionType === "Fold") {
+  if (actionType === "Fold") {
     return { ...player, lastAction: "Fold", folded: true, actedThisRound: true };
   }
 
   return {
     ...player,
-    lastAction,
-    contribution,
+    lastAction: actionType,
     actedThisRound: true,
     folded: false,
   };
-}
-
-export function getUpdatedBetLevel(
-  actionType: string,
-  highestBet: number,
-  newContribution: number
-): { highestBet: number; lastRaiserId: string | null } {
-  if (actionType === "Bet" && highestBet === 0) {
-    return { highestBet: 1, lastRaiserId: null };
-  }
-  if (actionType === "Bet" || actionType === "Raise") {
-    return { highestBet: newContribution, lastRaiserId: null };
-  }
-  if (actionType === "Limp" && highestBet === 0) {
-    return { highestBet: 1, lastRaiserId: null };
-  }
-  return { highestBet, lastRaiserId: null };
 }
 
 export function findNextActorIndex(players: StreetPlayer[], fromIndex: number): number {
@@ -525,17 +551,30 @@ export function processStreetAction(
   const contributionBefore = currentActor.contribution;
   const resolvedContribution = resolveContributionBb(state, actionType, sizing, currentActor);
 
+  const allIn = isAllInAction(actionType, sizing);
+  const loggedAction = allIn ? "All-In" : actionType;
+
   const updatedPlayers = state.players.map((p, idx) => {
     if (idx !== state.currentActorIndex) return p;
-    const applied = applyActionToPlayer(p, actionType, state.highestBet);
+    const applied = applyActionToPlayer(p, loggedAction);
+    let next = {
+      ...applied,
+      ...(resolvedContribution != null
+        ? { contribution: resolvedContribution }
+        : {}),
+    };
     if (resolvedContribution != null) {
-      return { ...applied, contribution: resolvedContribution };
+      const chipsIn = Math.max(0, next.contribution - contributionBefore);
+      next = {
+        ...next,
+        remainingStack: Math.max(0, p.remainingStack - chipsIn),
+      };
     }
-    return applied;
+    return next;
   });
 
-  let actionText = `${currentActor.label} (${currentActor.position}) ${actionType}`;
-  if (sizing) actionText += ` [${sizing}]`;
+  let actionText = `${currentActor.label} (${currentActor.position}) ${loggedAction}`;
+  if (sizing && !allIn) actionText += ` [${sizing}]`;
   const history = [...state.history, actionText];
 
   const actorAfter = updatedPlayers[state.currentActorIndex];
@@ -547,7 +586,11 @@ export function processStreetAction(
   let highestBet = maxContributionBb(updatedPlayers);
   let lastRaiserId = state.lastRaiserId;
 
-  if (actionType === "Bet" || actionType === "Raise") {
+  if (
+    actionType === "Bet" ||
+    actionType === "Raise" ||
+    allIn
+  ) {
     lastRaiserId = currentActor.id;
   } else if (actionType === "Limp" && highestBet < 1) {
     highestBet = 1;

@@ -74,6 +74,8 @@ export type StreetPlayer = {
   isHero: boolean;
   folded: boolean;
   contribution: number;
+  /** Stack behind in BB at street start; decremented as chips go in. */
+  remainingStack: number;
   lastAction: string;
   actedThisRound: boolean;
 };

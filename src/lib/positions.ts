@@ -27,13 +27,14 @@ export function getVillainPositionMode(
   heroPreflopAction: string,
   villainCount: number
 ): VillainPositionMode {
-  if (heroPreflopAction === "Limp" || heroPreflopAction === "Raise") {
+  if (
+    heroPreflopAction === "Limp" ||
+    heroPreflopAction === "Raise" ||
+    heroPreflopAction === "3-Bet"
+  ) {
     return "later-only";
   }
-  if (
-    (heroPreflopAction === "Call" || heroPreflopAction === "3-Bet") &&
-    villainCount === 1
-  ) {
+  if (heroPreflopAction === "Call" && villainCount === 1) {
     return "earlier-only";
   }
   return "all";
@@ -46,7 +47,7 @@ export function inferDefaultVillainPreflopAction(
   if (heroPreflopAction === "Call") return "Raise";
   if (heroPreflopAction === "Limp") return undefined;
   if (heroPreflopAction === "Raise") return "Call";
-  if (heroPreflopAction === "3-Bet") return "Raise";
+  if (heroPreflopAction === "3-Bet") return "Call";
   return undefined;
 }
 
@@ -63,9 +64,9 @@ export function heroPreflopActsBeforeVillains(
 export function getVillainPositionHint(mode: VillainPositionMode): string | null {
   switch (mode) {
     case "later-only":
-      return "Based on your limp/raise, villains are in later positions (acted after you).";
+      return "Based on your limp, raise, or 3-bet, villains are in later positions (acted after you).";
     case "earlier-only":
-      return "Based on your call/3-bet, the raiser is in an earlier position.";
+      return "Based on your call, the raiser is in an earlier position.";
     default:
       return null;
   }

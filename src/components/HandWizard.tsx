@@ -17,6 +17,7 @@ import {
   buildPreflopRoster,
   buildPreflopStateFromWizard,
   createPreflopStreetBase,
+  parseEffectiveStackBb,
   parseHeroPreflopLine,
   PREFLOP_DEAD_POT_BB,
   processStreetAction,
@@ -173,7 +174,9 @@ export function HandWizard({
                 // If entering Flop actions (Step 13), Turn actions (Step 15), or River actions (Step 17)
                 // Initialize the positional bidding states
                 if (wizardStep === 13) {
-                    initStreetState('flop');
+                    if (streetState.players.length === 0) {
+                        initStreetState('flop');
+                    }
                 } else if (wizardStep === 15) {
                     initStreetState('turn');
                 } else if (wizardStep === 17) {
@@ -240,7 +243,8 @@ export function HandWizard({
                     hand.heroPosition,
                     hand.heroPositionIndex,
                     hand.villains,
-                    hand.villainCount
+                    hand.villainCount,
+                    parseEffectiveStackBb(hand.effectiveStack)
                 );
                 const baseState = createPreflopStreetBase({
                     players: roster,
@@ -267,6 +271,10 @@ export function HandWizard({
             const initStreetState = (streetName: "flop" | "turn" | "river") => {
                 // Determine who is still active at the start of this street
                 let roster = [];
+                const defaultStackBb = parseEffectiveStackBb(hand.effectiveStack) ?? 0;
+                const prevStackById = Object.fromEntries(
+                    streetState.players.map((p) => [p.id, p.remainingStack ?? defaultStackBb])
+                );
 
                 // 1. Hero
                 const heroFoldedPreflop = hand.preflopFolded || hand.preflopAction === 'Fold';
@@ -280,6 +288,7 @@ export function HandWizard({
                     isHero: true,
                     folded: !!(heroFoldedPreflop || heroFoldedFlop || heroFoldedTurn),
                     contribution: 0,
+                    remainingStack: prevStackById.hero ?? defaultStackBb,
                     lastAction: 'None',
                     actedThisRound: false
                 });
@@ -289,14 +298,16 @@ export function HandWizard({
                     const villainFoldedPreflop = v.action === 'Fold';
                     const villainFoldedFlop = streetName !== 'flop' && v.flopFolded;
                     const villainFoldedTurn = streetName === 'river' && v.turnFolded;
+                    const villainId = `villain_${idx}`;
 
                     roster.push({
-                        id: `villain_${idx}`,
+                        id: villainId,
                         label: `Villain ${idx + 1}`,
                         position: v.position || positions[((hand.heroPositionIndex ?? 0) + idx + 1) % tableSize],
                         isHero: false,
                         folded: !!(villainFoldedPreflop || villainFoldedFlop || villainFoldedTurn),
                         contribution: 0,
+                        remainingStack: prevStackById[villainId] ?? defaultStackBb,
                         lastAction: 'None',
                         actedThisRound: false
                     });
@@ -550,8 +561,9 @@ export function HandWizard({
                     key,
                     val,
                     () => {
-                        if (cardIdx === 2) initStreetState("flop");
-                        setWizardStep((s) => s + 1);
+                        if (cardIdx < 2) {
+                            setWizardStep((s) => s + 1);
+                        }
                     }
                 );
             };
@@ -599,7 +611,7 @@ export function HandWizard({
 
             const shouldShowContinueButton = () => {
                 // Returns true if step needs a bottom Continue/Save button (not auto-advanced on tap grids)
-                return ![3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18].includes(wizardStep);
+                return ![3, 4, 5, 6, 7, 8, 10, 11, 12, 14, 15, 16, 17, 18].includes(wizardStep);
             };
 
             const getSuitColor = (suit: string) => {

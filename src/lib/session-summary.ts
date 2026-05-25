@@ -86,8 +86,12 @@ function formatStreetActionLines(
     const before = contributions[parsed.label] ?? 0;
     const sizing = parsed.sizing ?? "";
 
+    const isAllIn =
+      parsed.action === "All-In" || sizing === "all-in";
+    const displayAction = isAllIn ? "All-In" : parsed.action;
+
     let dollarSuffix = "";
-    if (MONEY_ACTIONS.has(parsed.action)) {
+    if (!isAllIn && MONEY_ACTIONS.has(parsed.action)) {
       const target = resolveContributionBbForAction(
         street,
         parsed.action,
@@ -106,9 +110,10 @@ function formatStreetActionLines(
       }
     }
 
-    const sizingPart = sizing ? formatSizingBracket(sizing, street) : "";
+    const sizingPart =
+      !isAllIn && sizing ? formatSizingBracket(sizing, street) : "";
     lines.push(
-      `  • ${parsed.label} ${parsed.action}${sizingPart}${dollarSuffix}`
+      `  • ${parsed.label} ${displayAction}${sizingPart}${dollarSuffix}`
     );
   }
 
