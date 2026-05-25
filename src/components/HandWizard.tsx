@@ -21,6 +21,8 @@ import {
   buildInitialVillains,
   getFilteredVillainPositions,
   getPostflopWeight,
+  heroPreflopActsBeforeVillains,
+  inferDefaultVillainPreflopAction,
   getVillainPositionHint,
   getVillainPositionMode,
   sanitizeVillainPositions,
@@ -79,6 +81,24 @@ export function HandWizard({
       setHand((prev) => ({ ...prev, villains: sanitized }));
     }
   }, [wizardStep, hand.villainCount, hand.preflopAction, hand.heroPositionIndex, tableSize]);
+
+  useEffect(() => {
+    if (wizardStep !== 9 || hand.villainCount < 1) return;
+    const defaultVillain = inferDefaultVillainPreflopAction(hand.preflopAction);
+    if (!defaultVillain) return;
+
+    const villains = [...hand.villains];
+    let changed = false;
+    for (let i = 0; i < hand.villainCount; i++) {
+      if (!villains[i]?.action) {
+        villains[i] = { ...(villains[i] ?? {}), action: defaultVillain };
+        changed = true;
+      }
+    }
+    if (changed) {
+      setHand((prev) => ({ ...prev, villains }));
+    }
+  }, [wizardStep, hand.villainCount, hand.preflopAction]);
 
   useEffect(() => {
     if (wizardStep !== 10 || hand.villainCount < 1) return;
@@ -830,7 +850,22 @@ export function HandWizard({
                         {/* STEP 9: Villain profiles (seat + tags) */}
                         {wizardStep === 9 && (
                             <div className="space-y-4 flex-1 animate-fadeIn">
-                                <p className="text-xs text-slate-400 text-center">Seat and tags for Villain {selectedVillainIndex + 1}. Preflop action is logged on the next step.</p>
+                                <p className="text-xs text-slate-400 text-center">Seat and tags for Villain {selectedVillainIndex + 1}.</p>
+
+                                {hand.preflopAction && (
+                                    <div className="p-3 rounded-xl bg-sky-950/30 border border-sky-900/50 text-center space-y-1">
+                                        <span className="text-[9px] text-sky-400 font-bold uppercase tracking-widest">Your preflop line (step 7)</span>
+                                        <p className="text-sm font-black text-sky-200">
+                                            {hand.preflopAction}
+                                            {hand.preflopAmount ? ` · ${hand.preflopAmount}` : ""}
+                                        </p>
+                                        {!heroPreflopActsBeforeVillains(hand.preflopAction) && (
+                                            <p className="text-[10px] text-slate-500 leading-relaxed">
+                                                Villains act before you — suggested villain action is pre-selected below.
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
                                 
                                 <div className="space-y-4">
                                     {/* Villain Position Selector */}
@@ -890,6 +925,44 @@ export function HandWizard({
                                                         }`}
                                                     >
                                                         {tag}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Villain preflop action</label>
+                                        <p className="text-[10px] text-slate-500 leading-relaxed">
+                                            Pre-filled from your line when villains act first. Adjust if needed.
+                                        </p>
+                                        <div className="grid grid-cols-5 gap-1.5">
+                                            {['Fold', 'Call', 'Raise', '3-Bet', 'All-In'].map(act => {
+                                                const currentV = hand.villains[selectedVillainIndex] || {};
+                                                const isSelected = currentV.action === act;
+                                                const isSuggested =
+                                                    inferDefaultVillainPreflopAction(hand.preflopAction) === act &&
+                                                    !heroPreflopActsBeforeVillains(hand.preflopAction);
+                                                return (
+                                                    <button
+                                                        key={act}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            playHaptic('click');
+                                                            const villains = [...hand.villains];
+                                                            if (!villains[selectedVillainIndex]) villains[selectedVillainIndex] = {};
+                                                            villains[selectedVillainIndex].action = act;
+                                                            updateHandState('villains', villains);
+                                                        }}
+                                                        className={`py-2 rounded-lg text-[10px] font-bold text-center transition-all ${
+                                                            isSelected
+                                                                ? 'bg-poker-accent text-slate-950 font-black ring-2 ring-poker-accent/50'
+                                                                : isSuggested
+                                                                  ? 'bg-sky-950/50 border border-sky-700/60 text-sky-300'
+                                                                  : 'bg-slate-950 border border-slate-900 text-slate-400 hover:bg-slate-900'
+                                                        }`}
+                                                    >
+                                                        {act}
                                                     </button>
                                                 );
                                             })}

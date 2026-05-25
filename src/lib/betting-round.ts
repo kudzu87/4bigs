@@ -59,12 +59,24 @@ export function seedPreflopFromHeroSummary(
     currentActionPending: "",
   };
 
-  if (!heroSummary || heroSummary === "Fold" || heroSummary === "Call") {
+  if (!heroSummary || heroSummary === "Fold") {
     return { ...base, currentActorIndex: 0 };
   }
 
   const firstActor = state.players[0];
   if (!firstActor?.isHero) {
+    return {
+      ...base,
+      currentActorIndex: 0,
+      rememberedHeroAction:
+        heroSummary === "Call" || heroSummary === "3-Bet"
+          ? heroSummary
+          : undefined,
+      rememberedHeroSizing: sizing || undefined,
+    };
+  }
+
+  if (heroSummary === "Call") {
     return { ...base, currentActorIndex: 0 };
   }
 
@@ -91,6 +103,8 @@ export function seedPreflopFromHeroSummary(
     lastRaiserId: result.lastRaiserId,
     showBetSizes: false,
     currentActionPending: "",
+    rememberedHeroAction: undefined,
+    rememberedHeroSizing: undefined,
   };
 }
 

@@ -84,6 +84,9 @@ export type StreetState = {
   showBetSizes: boolean;
   currentActionPending: string;
   currentActionPendingCustom?: boolean;
+  /** Step 7 line to highlight when hero acts after villains (e.g. Call). */
+  rememberedHeroAction?: string;
+  rememberedHeroSizing?: string;
 };
 
 export type SessionSetup = {

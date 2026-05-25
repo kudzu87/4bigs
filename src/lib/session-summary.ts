@@ -81,8 +81,7 @@ function formatHand(hand: Hand, handNumber: number): string {
   const net = getHandNetChange(hand);
   const netLabel =
     net >= 0 ? `+$${net}` : `-$${Math.abs(net)}`;
-  const amountPart = hand.resultAmount ? ` ($${hand.resultAmount} logged)` : "";
-  lines.push(`Result: ${hand.result || "—"} ${netLabel}${amountPart}`);
+  lines.push(`Result: ${hand.result || "—"} ${netLabel}`);
 
   if (hand.tags.length > 0) {
     lines.push(`Tags: ${hand.tags.map((t) => `#${t}`).join(" ")}`);

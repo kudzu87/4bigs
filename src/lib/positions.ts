@@ -41,6 +41,23 @@ export function getVillainPositionMode(
   return "all";
 }
 
+/** Default villain preflop label when hero line implies villain acted first (or responded). */
+export function inferDefaultVillainPreflopAction(
+  heroPreflopAction: string
+): string | undefined {
+  if (heroPreflopAction === "Call") return "Raise";
+  if (heroPreflopAction === "Limp") return undefined;
+  if (heroPreflopAction === "Raise") return "Call";
+  if (heroPreflopAction === "3-Bet") return "Raise";
+  return undefined;
+}
+
+export function heroPreflopActsBeforeVillains(
+  heroPreflopAction: string
+): boolean {
+  return heroPreflopAction === "Limp" || heroPreflopAction === "Raise";
+}
+
 export function getVillainPositionHint(mode: VillainPositionMode): string | null {
   switch (mode) {
     case "later-only":
@@ -102,8 +119,10 @@ export function buildInitialVillains(
   villainCount: number
 ): Villain[] {
   const mode = getVillainPositionMode(heroPreflopAction, villainCount);
+  const defaultAction = inferDefaultVillainPreflopAction(heroPreflopAction);
   return Array.from({ length: villainCount }, (_, i) => ({
     position: getSuggestedVillainPosition(positions, heroPositionIndex, mode, i),
+    ...(defaultAction ? { action: defaultAction } : {}),
   }));
 }
 

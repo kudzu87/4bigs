@@ -46,6 +46,16 @@ export function PreflopLiveActionLogger({
   const openAction = hasBetOccurred ? "Raise" : "Bet";
   const sizingOptions = streetState.currentActionPending === "Bet" ? OPEN_SIZINGS : RAISE_SIZINGS;
 
+  const rememberedHeroAction =
+    streetState.rememberedHeroAction ?? hand.preflopAction;
+  const rememberedHeroSizing =
+    streetState.rememberedHeroSizing ?? hand.preflopAmount;
+  const heroCallPreselected =
+    currentActor.isHero &&
+    rememberedHeroAction === "Call" &&
+    showCall &&
+    hasBetOccurred;
+
   return (
     <div className="space-y-4 flex-1 flex flex-col justify-between animate-fadeIn">
       <div className="flex items-center justify-between bg-slate-950/60 p-2.5 rounded-2xl border border-slate-900">
@@ -82,6 +92,17 @@ export function PreflopLiveActionLogger({
           </span>
         )}
       </div>
+
+      {heroCallPreselected && (
+        <div className="p-3 rounded-xl bg-sky-950/40 border border-sky-700/50 text-center space-y-1">
+          <span className="text-[9px] text-sky-400 font-bold uppercase tracking-widest">
+            Remembered from step 7
+          </span>
+          <p className="text-xs font-bold text-sky-200">
+            Call{rememberedHeroSizing ? ` · ${rememberedHeroSizing}` : ""} — tap Call below to log it
+          </p>
+        </div>
+      )}
 
       <div className="space-y-3">
         {!streetState.showBetSizes ? (
@@ -126,12 +147,24 @@ export function PreflopLiveActionLogger({
               <button
                 type="button"
                 onClick={() => {
-                  playHaptic("click");
-                  handlePlayerAction("Call");
+                  playHaptic(heroCallPreselected ? "success" : "click");
+                  handlePlayerAction(
+                    "Call",
+                    heroCallPreselected && rememberedHeroSizing
+                      ? rememberedHeroSizing
+                      : undefined
+                  );
                 }}
-                className="py-3 bg-sky-950/40 border border-sky-900/60 hover:bg-sky-900/20 text-sky-400 rounded-xl font-extrabold text-sm transition-all"
+                className={`py-3 rounded-xl font-extrabold text-sm transition-all ${
+                  heroCallPreselected
+                    ? "bg-poker-accent text-slate-950 ring-2 ring-poker-accent/60 glow-gold col-span-2"
+                    : "bg-sky-950/40 border border-sky-900/60 hover:bg-sky-900/20 text-sky-400"
+                }`}
               >
                 Call
+                {heroCallPreselected && rememberedHeroSizing
+                  ? ` (${rememberedHeroSizing})`
+                  : ""}
               </button>
             )}
             {showBet && (
