@@ -35,6 +35,12 @@ export type Hand = {
   riverFolded?: boolean;
 };
 
+export type SessionDraft = {
+  hand: Hand;
+  wizardStep: number;
+  selectedVillainIndex: number;
+};
+
 export type Session = {
   id: string;
   startTime: string;
@@ -45,9 +51,15 @@ export type Session = {
   startingStack: string;
   hands: Hand[];
   netAmount: number;
+  draft?: SessionDraft | null;
 };
 
-export type AppStep = "HOME" | "START_SESSION" | "ACTIVE_SESSION" | "HAND_WIZARD";
+export type AppStep =
+  | "HOME"
+  | "START_SESSION"
+  | "ACTIVE_SESSION"
+  | "HAND_WIZARD"
+  | "INSTALL_GUIDE";
 
 export type StreetPlayer = {
   id: string;

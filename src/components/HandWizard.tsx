@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronLeft, XCircle } from "lucide-react";
 import {
   ACTIONS,
@@ -10,7 +10,14 @@ import {
   SUITS,
 } from "@/lib/constants";
 import { playHaptic } from "@/lib/haptics";
-import { getPostflopWeight } from "@/lib/positions";
+import {
+  buildInitialVillains,
+  getFilteredVillainPositions,
+  getPostflopWeight,
+  getVillainPositionHint,
+  getVillainPositionMode,
+  sanitizeVillainPositions,
+} from "@/lib/positions";
 import type { Hand, StreetState } from "@/lib/types";
 import { PostflopLiveActionLogger } from "./PostflopLiveActionLogger";
 
@@ -24,6 +31,8 @@ export type HandWizardProps = {
   setSelectedVillainIndex: React.Dispatch<React.SetStateAction<number>>;
   onSave: (hand: Hand) => void;
   onCancel: () => void;
+  isEditing?: boolean;
+  onDraftSync?: (hand: Hand) => void;
 };
 
 export function HandWizard({
@@ -36,8 +45,32 @@ export function HandWizard({
   setSelectedVillainIndex,
   onSave,
   onCancel,
+  isEditing = false,
+  onDraftSync,
 }: HandWizardProps) {
   const [hand, setHand] = useState<Hand>(initialHand);
+
+  useEffect(() => {
+    onDraftSync?.(hand);
+  }, [hand, onDraftSync]);
+
+  useEffect(() => {
+    if (wizardStep !== 9 || hand.villainCount < 1) return;
+    const tablePositions = getPositionsForSize(tableSize);
+    const sanitized = sanitizeVillainPositions(
+      hand.villains,
+      tablePositions,
+      hand.heroPositionIndex,
+      hand.preflopAction,
+      hand.villainCount
+    );
+    const changed =
+      sanitized.length !== hand.villains.length ||
+      sanitized.some((v, i) => v.position !== hand.villains[i]?.position);
+    if (changed) {
+      setHand((prev) => ({ ...prev, villains: sanitized }));
+    }
+  }, [wizardStep, hand.villainCount, hand.preflopAction, hand.heroPositionIndex, tableSize]);
 
   const [streetState, setStreetState] = useState<StreetState>({
     street: "flop",
@@ -53,6 +86,16 @@ export function HandWizard({
             
 
             const positions = getPositionsForSize(tableSize);
+            const villainPositionMode = getVillainPositionMode(
+              hand.preflopAction,
+              hand.villainCount
+            );
+            const villainPositionOptions = getFilteredVillainPositions(
+              positions,
+              hand.heroPositionIndex,
+              villainPositionMode
+            );
+            const villainPositionHint = getVillainPositionHint(villainPositionMode);
 
   const updateHandState = <K extends keyof Hand>(key: K, val: Hand[K]) => {
     setHand((prev) => ({
@@ -741,7 +784,16 @@ export function HandWizard({
                                                     }));
                                                     setTimeout(() => setWizardStep(19), 200); // Direct jump to hand outcome notes screen (Step 19)
                                                 } else {
-                                                    updateHandState('villainCount', cnt);
+                                                    setHand((prev) => ({
+                                                        ...prev,
+                                                        villainCount: cnt,
+                                                        villains: buildInitialVillains(
+                                                            positions,
+                                                            prev.heroPositionIndex,
+                                                            prev.preflopAction,
+                                                            cnt
+                                                        ),
+                                                    }));
                                                     setTimeout(() => setWizardStep(9), 150);
                                                 }
                                             }}
@@ -765,13 +817,18 @@ export function HandWizard({
                                     {/* Villain Position Selector */}
                                     <div className="space-y-2">
                                         <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Villain Seat Position</label>
+                                        {villainPositionHint && (
+                                            <p className="text-[10px] text-emerald-500/90 leading-relaxed">
+                                                {villainPositionHint}
+                                            </p>
+                                        )}
                                         <div className="flex gap-1.5 overflow-x-auto pb-1 max-w-full">
-                                            {positions.map((pos, idx) => {
+                                            {(villainPositionOptions.length > 0 ? villainPositionOptions : positions).map((pos) => {
                                                 const currentV = hand.villains[selectedVillainIndex] || {};
                                                 const isSelected = currentV.position === pos;
                                                 return (
                                                     <button
-                                                        key={idx}
+                                                        key={pos}
                                                         type="button"
                                                         onClick={() => {
                                                             playHaptic('click');
@@ -1348,7 +1405,7 @@ export function HandWizard({
                                     onClick={() => onSave(hand)}
                                     className="flex-1 py-3.5 bg-poker-primary text-slate-950 font-black rounded-xl text-xs transition-colors glow-green"
                                 >
-                                    SAVE HAND
+                                    {isEditing ? "SAVE CHANGES" : "SAVE HAND"}
                                 </button>
                             ) : (
                                 <button

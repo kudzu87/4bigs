@@ -75,3 +75,4 @@ export const POSTFLOP_WEIGHTS: Record<string, number> = {
 };
 
 export const STORAGE_KEY = "four_bigs_sessions";
+export const ACTIVE_SESSION_KEY = "four_bigs_active_session";

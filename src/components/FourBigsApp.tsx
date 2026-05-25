@@ -1,16 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { playHaptic } from "@/lib/haptics";
 import { getPositionsForSize } from "@/lib/positions";
-import { createEmptyHand, loadSessions, saveSessions } from "@/lib/storage";
+import { recalculateSessionNet } from "@/lib/session-math";
+import {
+  buildSessionWithDraft,
+  clearActiveSession,
+  cloneHand,
+  createEmptyHand,
+  loadActiveSession,
+  loadSessions,
+  saveActiveSession,
+  saveSessions,
+} from "@/lib/storage";
 import type { AppStep, Hand, Session, SessionSetup } from "@/lib/types";
 import { ActiveSessionView } from "./ActiveSessionView";
 import { HandWizard } from "./HandWizard";
 import { HomeView } from "./HomeView";
+import { InstallGuideView } from "./InstallGuideView";
 import { InstallPrompt } from "./InstallPrompt";
 import { StartSessionView } from "./StartSessionView";
-import { isStandaloneMode } from "@/lib/pwa";
+import { usePwaInstall } from "@/hooks/usePwaInstall";
 
 export function FourBigsApp() {
   const [step, setStep] = useState<AppStep>("HOME");
@@ -19,20 +30,64 @@ export function FourBigsApp() {
   const [wizardStep, setWizardStep] = useState(3);
   const [currentHand, setCurrentHand] = useState<Hand | null>(null);
   const [selectedVillainIndex, setSelectedVillainIndex] = useState(0);
+  const [editingHandId, setEditingHandId] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
-  const [isInstalled, setIsInstalled] = useState(false);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
+  const [returnStep, setReturnStep] = useState<AppStep>("HOME");
+  const [saveFlash, setSaveFlash] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+  const {
+    showBanner,
+    dismissBanner,
+    isIos,
+    isInstalled,
+    canNativeInstall,
+    triggerNativeInstall,
+  } = usePwaInstall();
+
+  const flashSaved = useCallback(() => {
+    setSaveFlash(true);
+    const timer = setTimeout(() => setSaveFlash(false), 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const persistActiveSession = useCallback(
+    (session: Session | null, draft?: { hand: Hand; wizardStep: number; selectedVillainIndex: number } | null) => {
+      if (!session) {
+        clearActiveSession();
+        return;
+      }
+      const payload = draft
+        ? buildSessionWithDraft(session, draft)
+        : buildSessionWithDraft(session, null);
+      saveActiveSession(payload);
+      flashSaved();
+    },
+    [flashSaved]
+  );
 
   useEffect(() => {
     setPastSessions(loadSessions());
+    const active = loadActiveSession();
+    if (active) {
+      setActiveSession(active);
+      if (active.draft) {
+        setCurrentHand(active.draft.hand);
+        setWizardStep(active.draft.wizardStep);
+        setSelectedVillainIndex(active.draft.selectedVillainIndex);
+        setEditingHandId(null);
+        setStep("HAND_WIZARD");
+      } else {
+        setStep("ACTIVE_SESSION");
+      }
+    }
     setIsOffline(!navigator.onLine);
+    setHydrated(true);
 
     const handleOnline = () => setIsOffline(false);
     const handleOffline = () => setIsOffline(true);
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
-
-    setIsInstalled(isStandaloneMode());
 
     return () => {
       window.removeEventListener("online", handleOnline);
@@ -40,13 +95,51 @@ export function FourBigsApp() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!hydrated || !activeSession) return;
+
+    if (step === "HAND_WIZARD" && currentHand) {
+      persistActiveSession(activeSession, {
+        hand: currentHand,
+        wizardStep,
+        selectedVillainIndex,
+      });
+    } else {
+      persistActiveSession(activeSession, null);
+    }
+  }, [
+    hydrated,
+    activeSession,
+    step,
+    currentHand,
+    wizardStep,
+    selectedVillainIndex,
+    persistActiveSession,
+  ]);
+
   const saveSessionsToStorage = (updated: Session[]) => {
     saveSessions(updated);
     setPastSessions(updated);
+    flashSaved();
+  };
+
+  const updateActiveSession = (session: Session) => {
+    const normalized = {
+      ...session,
+      netAmount: recalculateSessionNet(session.hands),
+    };
+    setActiveSession(normalized);
+    persistActiveSession(
+      normalized,
+      step === "HAND_WIZARD" && currentHand
+        ? { hand: currentHand, wizardStep, selectedVillainIndex }
+        : null
+    );
   };
 
   const handleStartSession = (setupData: SessionSetup) => {
     playHaptic("success");
+    clearActiveSession();
     const newSession: Session = {
       id: Date.now().toString(),
       startTime: new Date().toISOString(),
@@ -58,13 +151,24 @@ export function FourBigsApp() {
       netAmount: 0,
     };
     setActiveSession(newSession);
+    persistActiveSession(newSession, null);
     setStep("ACTIVE_SESSION");
   };
 
   const startNewHand = () => {
     playHaptic("click");
+    setEditingHandId(null);
     setSelectedVillainIndex(0);
     setCurrentHand(createEmptyHand());
+    setWizardStep(3);
+    setStep("HAND_WIZARD");
+  };
+
+  const editHand = (hand: Hand) => {
+    playHaptic("click");
+    setEditingHandId(hand.id);
+    setSelectedVillainIndex(0);
+    setCurrentHand(cloneHand(hand));
     setWizardStep(3);
     setStep("HAND_WIZARD");
   };
@@ -72,22 +176,42 @@ export function FourBigsApp() {
   const handleSaveHand = (handData: Hand) => {
     if (!activeSession) return;
     playHaptic("success");
-    const updatedHands = [handData, ...activeSession.hands];
 
-    const netChange = Number(handData.resultAmount) || 0;
-    let outcomeMultiplier = 1;
-    if (handData.result === "Lost") outcomeMultiplier = -1;
-    else if (handData.result === "Split") outcomeMultiplier = 0.5;
+    let updatedHands: Hand[];
+    if (editingHandId) {
+      updatedHands = activeSession.hands.map((h) =>
+        h.id === editingHandId ? { ...handData, id: editingHandId } : h
+      );
+      setEditingHandId(null);
+    } else {
+      updatedHands = [handData, ...activeSession.hands];
+    }
 
-    const actualHandChange = netChange * outcomeMultiplier;
-    const newNet = activeSession.netAmount + actualHandChange;
-
-    setActiveSession({
+    const updatedSession: Session = {
       ...activeSession,
       hands: updatedHands,
-      netAmount: newNet,
-    });
+      netAmount: recalculateSessionNet(updatedHands),
+    };
+    delete updatedSession.draft;
+
+    setActiveSession(updatedSession);
+    persistActiveSession(updatedSession, null);
+    setCurrentHand(null);
     setStep("ACTIVE_SESSION");
+  };
+
+  const handleDeleteHand = (handId: string) => {
+    if (!activeSession) return;
+    if (!window.confirm("Delete this hand from the session?")) return;
+    playHaptic("delete");
+
+    const updatedHands = activeSession.hands.filter((h) => h.id !== handId);
+    const updatedSession: Session = {
+      ...activeSession,
+      hands: updatedHands,
+      netAmount: recalculateSessionNet(updatedHands),
+    };
+    updateActiveSession(updatedSession);
   };
 
   const handleEndSession = () => {
@@ -97,9 +221,13 @@ export function FourBigsApp() {
       ...activeSession,
       endTime: new Date().toISOString(),
     };
+    delete finalizedSession.draft;
     const updatedList = [finalizedSession, ...pastSessions];
     saveSessionsToStorage(updatedList);
+    clearActiveSession();
     setActiveSession(null);
+    setCurrentHand(null);
+    setEditingHandId(null);
     setStep("HOME");
     setShowEndConfirm(false);
   };
@@ -109,6 +237,45 @@ export function FourBigsApp() {
     const filter = pastSessions.filter((s) => s.id !== id);
     saveSessionsToStorage(filter);
   };
+
+  const openInstallGuide = () => {
+    setReturnStep(step);
+    dismissBanner();
+    setStep("INSTALL_GUIDE");
+  };
+
+  const closeInstallGuide = () => {
+    setStep(returnStep);
+  };
+
+  const handleInstallContinue = async () => {
+    if (canNativeInstall && !isIos) {
+      await triggerNativeInstall();
+    } else {
+      playHaptic("success");
+    }
+    closeInstallGuide();
+  };
+
+  const cancelHandWizard = () => {
+    playHaptic("click");
+    setEditingHandId(null);
+    setCurrentHand(null);
+    if (activeSession) {
+      const cleared = buildSessionWithDraft(activeSession, null);
+      setActiveSession(cleared);
+      persistActiveSession(cleared, null);
+    }
+    setStep("ACTIVE_SESSION");
+  };
+
+  if (!hydrated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#090d16] text-slate-500 text-sm">
+        Loading…
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col max-w-md mx-auto bg-[#090d16] border-x border-slate-900 shadow-2xl relative">
@@ -126,6 +293,11 @@ export function FourBigsApp() {
         </div>
 
         <div className="flex items-center gap-3">
+          {saveFlash && (
+            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider animate-pulse">
+              Saved
+            </span>
+          )}
           {isOffline ? (
             <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-semibold">
               <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
@@ -170,6 +342,8 @@ export function FourBigsApp() {
           <ActiveSessionView
             session={activeSession}
             onAddHand={startNewHand}
+            onEditHand={editHand}
+            onDeleteHand={handleDeleteHand}
             onEndClick={() => {
               playHaptic("click");
               setShowEndConfirm(true);
@@ -179,6 +353,7 @@ export function FourBigsApp() {
 
         {step === "HAND_WIZARD" && activeSession && currentHand && (
           <HandWizard
+            key={editingHandId ?? currentHand.id}
             initialHand={currentHand}
             tableSize={activeSession.tableSize}
             getPositionsForSize={getPositionsForSize}
@@ -187,15 +362,29 @@ export function FourBigsApp() {
             selectedVillainIndex={selectedVillainIndex}
             setSelectedVillainIndex={setSelectedVillainIndex}
             onSave={handleSaveHand}
-            onCancel={() => {
-              playHaptic("click");
-              setStep("ACTIVE_SESSION");
-            }}
+            onCancel={cancelHandWizard}
+            isEditing={!!editingHandId}
+            onDraftSync={setCurrentHand}
+          />
+        )}
+
+        {step === "INSTALL_GUIDE" && (
+          <InstallGuideView
+            isIos={isIos}
+            canNativeInstall={canNativeInstall}
+            onContinue={handleInstallContinue}
+            onBack={closeInstallGuide}
           />
         )}
       </main>
 
-      <InstallPrompt />
+      {step !== "INSTALL_GUIDE" && !isInstalled && (
+        <InstallPrompt
+          visible={showBanner}
+          onInstallClick={openInstallGuide}
+          onDismiss={dismissBanner}
+        />
+      )}
 
       {showEndConfirm && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
