@@ -275,6 +275,7 @@ export function buildPreflopStateFromWizard(
         ? state.currentActorIndex
         : result.nextActorIndex,
       pot: result.pot,
+      potByStreet: result.potByStreet,
       highestBet: result.highestBet,
       lastRaiserId: result.lastRaiserId,
       showBetSizes: false,
@@ -375,6 +376,7 @@ export function seedPreflopFromHeroSummary(
       ? heroIndex
       : result.nextActorIndex,
     pot: result.pot,
+    potByStreet: result.potByStreet,
     highestBet: result.highestBet,
     lastRaiserId: result.lastRaiserId,
     showBetSizes: false,

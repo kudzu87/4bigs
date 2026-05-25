@@ -56,25 +56,59 @@ export function PostflopLiveActionLogger({
 
   return (
     <div className="space-y-4 flex-1 flex flex-col justify-between animate-fadeIn">
-      <div className="flex items-center justify-between bg-slate-950/60 p-2.5 rounded-2xl border border-slate-900">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Board:</span>
-          <div className="flex gap-1">
-            {hand.boardFlop?.map((c, i) => c.rank && (
-              <span key={`f-${i}`} className="bg-slate-900 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold">
-                {c.rank}<span className={getSuitColor(c.suit)}>{c.suit}</span>
-              </span>
-            ))}
-            {streetState.street !== "flop" && hand.boardTurn?.rank && (
-              <span className="bg-slate-900 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold">
-                {hand.boardTurn.rank}<span className={getSuitColor(hand.boardTurn.suit)}>{hand.boardTurn.suit}</span>
-              </span>
-            )}
-            {streetState.street === "river" && hand.boardRiver?.rank && (
-              <span className="bg-slate-900 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold">
-                {hand.boardRiver.rank}<span className={getSuitColor(hand.boardRiver.suit)}>{hand.boardRiver.suit}</span>
-              </span>
-            )}
+      <div className="flex items-center justify-between gap-2 bg-slate-950/60 p-2.5 rounded-2xl border border-slate-900">
+        <div className="flex flex-col gap-1.5 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black shrink-0">
+              Hole:
+            </span>
+            <div className="flex gap-1 font-mono text-[10px]">
+              {hand.heroCards.map((c, i) =>
+                c.rank ? (
+                  <span
+                    key={`hole-${i}`}
+                    className="bg-slate-900 px-1.5 py-0.5 rounded font-bold"
+                  >
+                    {c.rank}
+                    <span className={getSuitColor(c.suit)}>{c.suit}</span>
+                  </span>
+                ) : null
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black shrink-0">
+              Board:
+            </span>
+            <div className="flex flex-wrap gap-1">
+              {hand.boardFlop?.map((c, i) =>
+                c.rank ? (
+                  <span
+                    key={`f-${i}`}
+                    className="bg-slate-900 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold"
+                  >
+                    {c.rank}
+                    <span className={getSuitColor(c.suit)}>{c.suit}</span>
+                  </span>
+                ) : null
+              )}
+              {streetState.street !== "flop" && hand.boardTurn?.rank && (
+                <span className="bg-slate-900 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold">
+                  {hand.boardTurn.rank}
+                  <span className={getSuitColor(hand.boardTurn.suit)}>
+                    {hand.boardTurn.suit}
+                  </span>
+                </span>
+              )}
+              {streetState.street === "river" && hand.boardRiver?.rank && (
+                <span className="bg-slate-900 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold">
+                  {hand.boardRiver.rank}
+                  <span className={getSuitColor(hand.boardRiver.suit)}>
+                    {hand.boardRiver.suit}
+                  </span>
+                </span>
+              )}
+            </div>
           </div>
         </div>
         <div className="text-right">

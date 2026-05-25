@@ -5,7 +5,9 @@ import {
   PREFLOP_LIVE_SIZING_OPTIONS,
   PREFLOP_SIZING_CUSTOM,
 } from "@/lib/constants";
+import { PREFLOP_DEAD_POT_BB } from "@/lib/betting-round";
 import { playHaptic } from "@/lib/haptics";
+import { formatBbAsDollars } from "@/lib/session-math";
 import { getValidPreflopActions } from "@/lib/betting-round";
 import type { Hand, StreetState } from "@/lib/types";
 
@@ -15,6 +17,8 @@ type PreflopLiveActionLoggerProps = {
   handlePlayerAction: (actionType: string, sizing?: string) => void;
   skipToOutcome: () => void;
   hand: Hand;
+  potBb?: number;
+  bigBlind?: number;
 };
 
 export function PreflopLiveActionLogger({
@@ -23,6 +27,8 @@ export function PreflopLiveActionLogger({
   handlePlayerAction,
   skipToOutcome,
   hand,
+  potBb = PREFLOP_DEAD_POT_BB,
+  bigBlind = 2,
 }: PreflopLiveActionLoggerProps) {
   const currentActor = streetState.players[streetState.currentActorIndex];
   const hasBetOccurred = streetState.highestBet > 0;
@@ -72,9 +78,14 @@ export function PreflopLiveActionLogger({
             ))}
           </div>
         </div>
-        <span className="text-[10px] text-poker-accent font-black uppercase tracking-widest">
-          Preflop
-        </span>
+        <div className="text-right">
+          <span className="text-[10px] text-poker-accent font-black uppercase tracking-widest block">
+            Preflop
+          </span>
+          <span className="text-[9px] text-slate-400 font-bold">
+            Pot {formatBbAsDollars(potBb, bigBlind)} ({potBb} BB)
+          </span>
+        </div>
       </div>
 
       <div className="p-4 rounded-3xl bg-slate-950/80 border border-slate-800 flex flex-col items-center justify-center text-center space-y-2 relative shadow-lg">

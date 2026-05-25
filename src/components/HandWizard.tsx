@@ -193,7 +193,10 @@ export function HandWizard({
                 setWizardStep(19); // Hand Outcome
             };
 
-            const completePreflopFromHistory = (history: string[]) => {
+            const completePreflopFromHistory = (
+                history: string[],
+                finalStreet?: Pick<StreetState, "pot" | "potByStreet">
+            ) => {
                 const heroLine = parseHeroPreflopLine(history);
                 const syncedVillains = syncVillainActionsFromLog(
                     hand.villains,
@@ -209,17 +212,25 @@ export function HandWizard({
                 );
                 const heroFolded =
                     heroLine === "Fold" || hand.preflopFolded;
+                const mergedPotByStreet = {
+                    ...hand.potByStreet,
+                    ...finalStreet?.potByStreet,
+                };
                 setHand((prev) => ({
                     ...prev,
                     preflopActions: history,
                     preflopAction: heroLine || prev.preflopAction,
                     villains: sanitized,
                     preflopFolded: heroFolded || prev.preflopFolded,
-                    potByStreet: {
-                        ...prev.potByStreet,
-                        ...streetState.potByStreet,
-                    },
+                    potByStreet: mergedPotByStreet,
                 }));
+                if (finalStreet) {
+                    setStreetState((prev) => ({
+                        ...prev,
+                        pot: finalStreet.pot,
+                        potByStreet: mergedPotByStreet,
+                    }));
+                }
                 setWizardStep(heroFolded ? 19 : 11);
             };
 
@@ -242,7 +253,10 @@ export function HandWizard({
                 if (roundComplete) {
                     playHaptic("success");
                     setStreetState(state);
-                    completePreflopFromHistory(state.history);
+                    completePreflopFromHistory(state.history, {
+                        pot: state.pot,
+                        potByStreet: state.potByStreet,
+                    });
                     return;
                 }
 
@@ -292,17 +306,28 @@ export function HandWizard({
                 const activeOnStreet = roster.filter(p => !p.folded);
                 const sortedActive = activeOnStreet.sort((a, b) => getPostflopWeight(a.position) - getPostflopWeight(b.position));
 
-                const potByStreet = { ...streetState.potByStreet };
+                const potByStreet = {
+                    ...hand.potByStreet,
+                    ...streetState.potByStreet,
+                };
                 let pot = streetState.pot ?? PREFLOP_DEAD_POT_BB;
                 if (streetName === "flop") {
-                    pot = potByStreet.preflop ?? pot;
+                    pot =
+                        potByStreet.preflop ??
+                        streetState.pot ??
+                        PREFLOP_DEAD_POT_BB;
                 } else if (streetName === "turn") {
-                    pot = potByStreet.flop ?? potByStreet.preflop ?? pot;
+                    pot =
+                        potByStreet.flop ??
+                        potByStreet.preflop ??
+                        streetState.pot ??
+                        pot;
                 } else if (streetName === "river") {
                     pot =
                         potByStreet.turn ??
                         potByStreet.flop ??
                         potByStreet.preflop ??
+                        streetState.pot ??
                         pot;
                 }
 
@@ -1170,6 +1195,8 @@ export function HandWizard({
                                 handlePlayerAction={handlePlayerAction}
                                 skipToOutcome={skipToOutcome}
                                 hand={hand}
+                                potBb={streetState.pot ?? PREFLOP_DEAD_POT_BB}
+                                bigBlind={bigBlind}
                             />
                         )}
 
@@ -1378,7 +1405,7 @@ export function HandWizard({
                                 skipToOutcome={skipToOutcome}
                                 getSuitColor={getSuitColor}
                                 hand={hand}
-                                potBb={streetState.pot}
+                                potBb={streetState.pot ?? PREFLOP_DEAD_POT_BB}
                                 bigBlind={bigBlind}
                             />
                         )}
@@ -1452,7 +1479,7 @@ export function HandWizard({
                                 skipToOutcome={skipToOutcome}
                                 getSuitColor={getSuitColor}
                                 hand={hand}
-                                potBb={streetState.pot}
+                                potBb={streetState.pot ?? PREFLOP_DEAD_POT_BB}
                                 bigBlind={bigBlind}
                             />
                         )}
@@ -1526,7 +1553,7 @@ export function HandWizard({
                                 skipToOutcome={skipToOutcome}
                                 getSuitColor={getSuitColor}
                                 hand={hand}
-                                potBb={streetState.pot}
+                                potBb={streetState.pot ?? PREFLOP_DEAD_POT_BB}
                                 bigBlind={bigBlind}
                             />
                         )}
