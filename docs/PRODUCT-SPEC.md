@@ -334,7 +334,7 @@ Hero re-raised as the aggressor, so villains sit in **later** seats (BTN, SB, BB
 ### Hand (per hand)
 - Hero: `heroPosition`, `heroPositionIndex`, `heroCards[2]`, `effectiveStack`
 - Preflop: `preflopAction`, `preflopAmount` (BB multiplier string), `preflopActions[]`, `preflopFolded?`
-- Villains: `villainCount`, `villains[]` (position, tag, action, notes, street fold flags)
+- Villains: `villainCount`, `villains[]` (position, tag, action, `stackBb?` (BB depth from step 9; engine defaults to hero `effectiveStack` when unset), notes, street fold flags)
 - Board: `boardFlop[3]`, `boardTurn`, `boardRiver`
 - Actions: `flopActions[]`, `turnActions[]`, `riverActions[]`
 - Pot: `potByStreet?` — `{ preflop?, flop?, turn?, river? }` each in **BB** at end of that street’s betting
@@ -400,7 +400,7 @@ River: (pot $36)
   • Hero Bet [2/3] — $24
   • Villain 1 Fold
 Villains:
-  • V1 CO (Reg) — Raise pre
+  • V1 BTN (Reg) — 50 BB — Call pre
 Result: Won +$45
 Tags: #Thin Value #Single Raised Pot
 Notes: Villain overfolded river.
@@ -408,7 +408,7 @@ Notes: Villain overfolded river.
 
 - **Street headers** — `Preflop: (pot $X)` uses pot at **start** of that street’s betting (from `hand.potByStreet` + engine replay).
 - **Action lines** — sizing label kept in brackets; **resolved increment** shown as `— $Y` (omitted for Check / Fold).
-- **Villains block** — profile preflop action; missing action exports as `Unknown`.
+- **Villains block** — profile preflop action; optional `— N BB` when `stackBb` is set (e.g. `V1 BTN (Reg) — 50 BB — Call pre`); omitted when unset; missing action exports as `Unknown`.
 
 ### 8.1 Tags
 

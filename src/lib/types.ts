@@ -5,6 +5,7 @@ export type Villain = {
   tag?: string;
   action?: string;
   note?: string;
+  stackBb?: number;
   flopFolded?: boolean;
   turnFolded?: boolean;
   riverFolded?: boolean;

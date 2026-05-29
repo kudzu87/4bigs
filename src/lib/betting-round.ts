@@ -226,11 +226,11 @@ export function buildPreflopRoster(
   positions: string[],
   heroPosition: string,
   heroPositionIndex: number | null,
-  villains: { position?: string }[],
+  villains: { position?: string; stackBb?: number }[],
   villainCount: number,
   effectiveStackBb: number | null = null
 ): StreetPlayer[] {
-  const stackBb = effectiveStackBb ?? 0;
+  const heroStackBb = effectiveStackBb ?? 0;
   const roster: StreetPlayer[] = [
     {
       id: "hero",
@@ -239,7 +239,7 @@ export function buildPreflopRoster(
       isHero: true,
       folded: false,
       contribution: 0,
-      remainingStack: stackBb,
+      remainingStack: heroStackBb,
       lastAction: "None",
       actedThisRound: false,
     },
@@ -256,7 +256,7 @@ export function buildPreflopRoster(
       isHero: false,
       folded: false,
       contribution: 0,
-      remainingStack: stackBb,
+      remainingStack: v.stackBb ?? heroStackBb,
       lastAction: "None",
       actedThisRound: false,
     });

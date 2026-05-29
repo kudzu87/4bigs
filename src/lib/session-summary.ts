@@ -134,6 +134,7 @@ function formatVillains(villains: Villain[], count: number): string[] {
     const parts: string[] = [`  • V${i + 1}`];
     if (v.position) parts.push(v.position);
     if (v.tag) parts.push(`(${v.tag})`);
+    if (v.stackBb != null) parts.push(`— ${v.stackBb} BB`);
     parts.push(`— ${villainAction} pre`);
     if (v.note) parts.push(`— note: ${v.note}`);
     lines.push(parts.join(" "));

@@ -77,6 +77,9 @@ export function HandWizard({
 }: HandWizardProps) {
   const [hand, setHand] = useState<Hand>(initialHand);
   const [preflopCustomOpen, setPreflopCustomOpen] = useState(false);
+  const [villainStackCustomOpen, setVillainStackCustomOpen] = useState(false);
+
+  const VILLAIN_STACK_PRESETS = [33, 50, 75, 100] as const;
 
   useEffect(() => {
     onDraftSync?.(hand);
@@ -117,6 +120,14 @@ export function HandWizard({
       setHand((prev) => ({ ...prev, villains }));
     }
   }, [wizardStep, hand.villainCount, hand.preflopAction]);
+
+  useEffect(() => {
+    if (wizardStep !== 9) return;
+    const stackBb = hand.villains[selectedVillainIndex]?.stackBb;
+    setVillainStackCustomOpen(
+      stackBb != null && !VILLAIN_STACK_PRESETS.includes(stackBb as (typeof VILLAIN_STACK_PRESETS)[number])
+    );
+  }, [wizardStep, selectedVillainIndex, hand.villains]);
 
   useEffect(() => {
     if (wizardStep !== 10 || hand.villainCount < 1) return;
@@ -1132,6 +1143,125 @@ export function HandWizard({
                                                 );
                                             })}
                                         </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                                            Stack depth (optional)
+                                        </label>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {VILLAIN_STACK_PRESETS.map((bb) => {
+                                                const currentV =
+                                                    hand.villains[selectedVillainIndex] || {};
+                                                const isSelected = currentV.stackBb === bb;
+                                                return (
+                                                    <button
+                                                        key={bb}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            playHaptic("click");
+                                                            const villains = [...hand.villains];
+                                                            if (!villains[selectedVillainIndex]) {
+                                                                villains[selectedVillainIndex] = {};
+                                                            }
+                                                            villains[selectedVillainIndex].stackBb = bb;
+                                                            setVillainStackCustomOpen(false);
+                                                            updateHandState("villains", villains);
+                                                        }}
+                                                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                                            isSelected
+                                                                ? "bg-poker-primary text-slate-950"
+                                                                : "bg-slate-950 text-slate-400 hover:bg-slate-900 border border-slate-900"
+                                                        }`}
+                                                    >
+                                                        ~${Math.round(bb * bigBlind)}
+                                                    </button>
+                                                );
+                                            })}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    playHaptic("click");
+                                                    setVillainStackCustomOpen(true);
+                                                }}
+                                                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                                    villainStackCustomOpen ||
+                                                    (hand.villains[selectedVillainIndex]?.stackBb !=
+                                                        null &&
+                                                        !VILLAIN_STACK_PRESETS.includes(
+                                                            hand.villains[selectedVillainIndex]
+                                                                ?.stackBb as (typeof VILLAIN_STACK_PRESETS)[number]
+                                                        ))
+                                                        ? "bg-poker-accent/20 text-poker-accent border border-poker-accent/40"
+                                                        : "bg-slate-950 text-slate-500 hover:bg-slate-900 border border-transparent"
+                                                }`}
+                                            >
+                                                Custom
+                                            </button>
+                                        </div>
+                                        {villainStackCustomOpen && (
+                                            <div className="flex gap-2 pt-1">
+                                                <input
+                                                    type="number"
+                                                    inputMode="decimal"
+                                                    min={1}
+                                                    step={1}
+                                                    placeholder="BB (e.g. 150)"
+                                                    value={(() => {
+                                                        const stackBb =
+                                                            hand.villains[selectedVillainIndex]
+                                                                ?.stackBb;
+                                                        if (
+                                                            stackBb == null ||
+                                                            VILLAIN_STACK_PRESETS.includes(
+                                                                stackBb as (typeof VILLAIN_STACK_PRESETS)[number]
+                                                            )
+                                                        ) {
+                                                            return "";
+                                                        }
+                                                        return String(stackBb);
+                                                    })()}
+                                                    onChange={(e) => {
+                                                        const villains = [...hand.villains];
+                                                        if (!villains[selectedVillainIndex]) {
+                                                            villains[selectedVillainIndex] = {};
+                                                        }
+                                                        const raw = e.target.value.trim();
+                                                        if (!raw) {
+                                                            delete villains[selectedVillainIndex]
+                                                                .stackBb;
+                                                        } else {
+                                                            const n = Number(raw);
+                                                            if (Number.isFinite(n) && n > 0) {
+                                                                villains[
+                                                                    selectedVillainIndex
+                                                                ].stackBb = n;
+                                                            }
+                                                        }
+                                                        updateHandState("villains", villains);
+                                                    }}
+                                                    className="flex-1 p-2.5 rounded-xl bg-slate-950 border border-slate-900 focus:border-poker-primary text-white text-xs focus:outline-none"
+                                                />
+                                                {(() => {
+                                                    const stackBb =
+                                                        hand.villains[selectedVillainIndex]
+                                                            ?.stackBb;
+                                                    if (
+                                                        stackBb == null ||
+                                                        VILLAIN_STACK_PRESETS.includes(
+                                                            stackBb as (typeof VILLAIN_STACK_PRESETS)[number]
+                                                        )
+                                                    ) {
+                                                        return null;
+                                                    }
+                                                    return (
+                                                        <span className="self-center text-[10px] text-poker-accent font-extrabold shrink-0">
+                                                            ≈ {formatBbAsDollars(stackBb, bigBlind)}
+                                                        </span>
+                                                    );
+                                                })()}
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="space-y-2">
