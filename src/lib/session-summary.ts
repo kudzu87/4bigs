@@ -60,7 +60,7 @@ function parseLiveActionLine(line: string): ParsedAction | null {
   };
 }
 
-function formatStreetActionLines(
+export function formatStreetActionLines(
   street: keyof PotByStreet,
   actions: string[] | undefined,
   potByStreet: PotByStreet,
@@ -69,8 +69,7 @@ function formatStreetActionLines(
   if (!actions?.length) return [];
 
   let potBb = getStreetStartPotBb(street, potByStreet);
-  const potHeader = bbToDollars(potBb, bigBlind);
-  const lines: string[] = [`${capitalizeStreet(street)}: (pot ${potHeader})`];
+  const lines: string[] = [formatStreetPotHeader(street, potByStreet, bigBlind)];
 
   const contributions: Record<string, number> = {};
   let highestBetBb = 0;
@@ -124,7 +123,17 @@ function capitalizeStreet(street: keyof PotByStreet): string {
   return street.charAt(0).toUpperCase() + street.slice(1);
 }
 
-function formatVillains(villains: Villain[], count: number): string[] {
+/** Street header line for export (pot at start of street betting, in dollars). */
+export function formatStreetPotHeader(
+  street: keyof PotByStreet,
+  potByStreet: PotByStreet = {},
+  bigBlind: number
+): string {
+  const potBb = getStreetStartPotBb(street, potByStreet);
+  return `${capitalizeStreet(street)}: (pot ${bbToDollars(potBb, bigBlind)})`;
+}
+
+export function formatVillains(villains: Villain[], count: number): string[] {
   if (count <= 0) return [];
   const lines: string[] = ["Villains:"];
   for (let i = 0; i < count; i++) {
