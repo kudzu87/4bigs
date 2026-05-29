@@ -19,7 +19,7 @@ export type WizardStepVillainProfileProps = {
   setSelectedVillainIndex: (i: number) => void;
   bigBlind: number;
   villainPositionOptions: string[];
-  villainPositionHint: string;
+  villainPositionHint: string | null;
   onVillainChange: (updatedVillains: Villain[]) => void;
   onNext: () => void;
 };
