@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, PlusCircle, ShieldAlert, Trash2 } from "lucide-react";
+import { Flag, Pencil, PlusCircle, ShieldAlert, Trash2 } from "lucide-react";
 import { playHaptic } from "@/lib/haptics";
 import type { Hand, Session } from "@/lib/types";
 import { CopySessionNotesButton } from "./CopySessionNotesButton";
@@ -97,9 +97,18 @@ export function ActiveSessionView({
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="w-6 h-6 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-center font-bold text-xs text-slate-500 shrink-0">
-                      #{session.hands.length - index}
-                    </span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="w-6 h-6 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-center font-bold text-xs text-slate-500">
+                        #{session.hands.length - index}
+                      </span>
+                      {hand.reviewWanted && (
+                        <Flag
+                          className="w-3 h-3 text-poker-accent/70"
+                          fill="currentColor"
+                          aria-label="Marked for review"
+                        />
+                      )}
+                    </div>
                     <span className="font-bold text-sm text-slate-200 truncate">
                       {hand.heroPosition}
                       {hand.effectiveStack ? ` (${hand.effectiveStack})` : ""}

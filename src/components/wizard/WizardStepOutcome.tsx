@@ -3,6 +3,7 @@
 import { REVIEW_TAG_GROUPS } from "@/lib/constants";
 import { playHaptic } from "@/lib/haptics";
 import type { Hand } from "@/lib/types";
+import { Flag } from "lucide-react";
 
 export type WizardStepOutcomeProps = {
   wizardStep: number;
@@ -69,6 +70,8 @@ export function WizardStepOutcome({
   }
 
   if (wizardStep === 20) {
+    const reviewWanted = hand.reviewWanted ?? false;
+
     return (
       <div className="space-y-4 flex-1 animate-fadeIn flex flex-col justify-between">
         <div className="space-y-4">
@@ -88,6 +91,25 @@ export function WizardStepOutcome({
               className="w-full p-3 rounded-xl bg-slate-950 border border-slate-900 focus:border-poker-primary text-white text-xs focus:outline-none resize-none"
             />
           </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              playHaptic("click");
+              onHandChange({ reviewWanted: !hand.reviewWanted });
+            }}
+            className={`w-full flex items-center justify-center gap-2.5 p-4 rounded-xl font-bold text-sm transition-all ${
+              reviewWanted
+                ? "bg-poker-accent/15 text-poker-accent border border-poker-accent/50 glow-gold"
+                : "bg-slate-950 text-slate-500 border border-slate-900 hover:border-slate-800"
+            }`}
+          >
+            <Flag
+              className="w-4 h-4 shrink-0"
+              fill={reviewWanted ? "currentColor" : "none"}
+            />
+            {reviewWanted ? "Review Wanted" : "Mark for Review"}
+          </button>
 
           <div className="space-y-3">
             <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block">

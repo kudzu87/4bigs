@@ -195,6 +195,10 @@ function formatHand(hand: Hand, handNumber: number, bigBlind: number): string {
   const netLabel = net >= 0 ? `+$${net}` : `-$${Math.abs(net)}`;
   lines.push(`Result: ${hand.result || "—"} ${netLabel}`);
 
+  if (hand.reviewWanted === true) {
+    lines.push("⚑ Review Wanted");
+  }
+
   if (hand.tags.length > 0) {
     lines.push(`Tags: ${hand.tags.map((t) => `#${t}`).join(" ")}`);
   }

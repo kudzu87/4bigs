@@ -33,6 +33,7 @@ export type Hand = {
   resultAmount: string;
   notes: string;
   tags: string[];
+  reviewWanted?: boolean;
   flopFolded?: boolean;
   turnFolded?: boolean;
   riverFolded?: boolean;
