@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { playHaptic } from "@/lib/haptics";
 import { getPositionsForSize } from "@/lib/positions";
 import {
@@ -29,6 +30,14 @@ import { StartSessionView } from "./StartSessionView";
 import { usePwaInstall } from "@/hooks/usePwaInstall";
 import { useAuth } from "@/hooks/useAuth";
 import { AuthModal } from "@/components/auth/AuthModal";
+import {
+  deleteSession as deleteCloudSession,
+  mergeSessions,
+  migrateLocalToCloud,
+  pushSession,
+} from "@/lib/supabase/sync";
+
+type SyncStatus = "idle" | "syncing" | "error";
 
 function truncateEmail(email: string, max = 18): string {
   if (email.length <= max) return email;
@@ -54,6 +63,8 @@ export function FourBigsApp() {
   const [saveFlash, setSaveFlash] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
+  const prevUserIdRef = useRef<string | null | undefined>(undefined);
   const { user, loading: authLoading, signOut } = useAuth();
   const {
     showBanner,
@@ -69,6 +80,24 @@ export function FourBigsApp() {
     const timer = setTimeout(() => setSaveFlash(false), 2000);
     return () => clearTimeout(timer);
   }, []);
+
+  const runSync = useCallback(async (operation: () => Promise<void>) => {
+    setSyncStatus("syncing");
+    try {
+      await operation();
+      setPastSessions(loadSessions());
+      setSyncStatus("idle");
+    } catch (err) {
+      console.error("Sync failed:", err);
+      setSyncStatus("error");
+    }
+  }, []);
+
+  const retrySync = useCallback(() => {
+    if (!user) return;
+    playHaptic("click");
+    void runSync(() => mergeSessions(user.id));
+  }, [user, runSync]);
 
   const persistActiveSession = useCallback(
     (session: Session | null, draft?: { hand: Hand; wizardStep: number; selectedVillainIndex: number } | null) => {
@@ -113,6 +142,32 @@ export function FourBigsApp() {
       window.removeEventListener("offline", handleOffline);
     };
   }, []);
+
+  useEffect(() => {
+    if (!hydrated || authLoading) return;
+
+    const userId = user?.id ?? null;
+
+    if (!userId) {
+      prevUserIdRef.current = null;
+      return;
+    }
+
+    const prevUserId = prevUserIdRef.current;
+    prevUserIdRef.current = userId;
+
+    if (prevUserId === null) {
+      void runSync(async () => {
+        await migrateLocalToCloud(userId);
+        await mergeSessions(userId);
+      });
+      return;
+    }
+
+    if (prevUserId === undefined) {
+      void runSync(() => mergeSessions(userId));
+    }
+  }, [hydrated, authLoading, user, runSync]);
 
   useEffect(() => {
     if (!hydrated || !activeSession) return;
@@ -244,6 +299,12 @@ export function FourBigsApp() {
     delete finalizedSession.draft;
     const updatedList = [finalizedSession, ...pastSessions];
     saveSessionsToStorage(updatedList);
+    const userId = user?.id;
+    if (userId) {
+      void pushSession(finalizedSession, userId).catch((err) =>
+        console.error("Background session push failed:", err)
+      );
+    }
     clearActiveSession();
     setActiveSession(null);
     setCurrentHand(null);
@@ -256,6 +317,12 @@ export function FourBigsApp() {
     playHaptic("delete");
     const filter = pastSessions.filter((s) => s.id !== id);
     saveSessionsToStorage(filter);
+    const userId = user?.id;
+    if (userId) {
+      void deleteCloudSession(id, userId).catch((err) =>
+        console.error("Background session delete failed:", err)
+      );
+    }
   };
 
   const handleClearLocalData = () => {
@@ -337,6 +404,28 @@ export function FourBigsApp() {
             <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider animate-pulse">
               Saved
             </span>
+          )}
+
+          {step === "HOME" && !authLoading && syncStatus === "syncing" && (
+            <span className="flex items-center gap-1 text-[10px] text-slate-400 whitespace-nowrap">
+              <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+              Syncing…
+            </span>
+          )}
+
+          {step === "HOME" && !authLoading && syncStatus === "error" && user && (
+            <div className="flex items-center gap-1.5 whitespace-nowrap">
+              <span className="text-[10px] font-semibold text-rose-400">
+                Sync error
+              </span>
+              <button
+                type="button"
+                onClick={retrySync}
+                className="text-[10px] font-bold text-rose-300 hover:text-rose-200 underline underline-offset-2"
+              >
+                Retry
+              </button>
+            </div>
           )}
 
           {step === "HOME" && !authLoading && (
