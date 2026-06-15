@@ -27,6 +27,18 @@ import { InstallGuideView } from "./InstallGuideView";
 import { InstallPrompt } from "./InstallPrompt";
 import { StartSessionView } from "./StartSessionView";
 import { usePwaInstall } from "@/hooks/usePwaInstall";
+import { useAuth } from "@/hooks/useAuth";
+import { AuthModal } from "@/components/auth/AuthModal";
+
+function truncateEmail(email: string, max = 18): string {
+  if (email.length <= max) return email;
+  const at = email.indexOf("@");
+  if (at <= 0) return `${email.slice(0, max - 1)}…`;
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  if (local.length <= 6) return `${local}@${domain.slice(0, 3)}…`;
+  return `${local.slice(0, 5)}…@${domain}`;
+}
 
 export function FourBigsApp() {
   const [step, setStep] = useState<AppStep>("HOME");
@@ -41,6 +53,8 @@ export function FourBigsApp() {
   const [returnStep, setReturnStep] = useState<AppStep>("HOME");
   const [saveFlash, setSaveFlash] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const { user, loading: authLoading, signOut } = useAuth();
   const {
     showBanner,
     dismissBanner,
@@ -318,17 +332,69 @@ export function FourBigsApp() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 shrink-0">
           {saveFlash && (
             <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider animate-pulse">
               Saved
             </span>
           )}
+
+          {step === "HOME" && !authLoading && (
+            <>
+              {user ? (
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className="text-[10px] text-slate-400 truncate max-w-[88px]"
+                    title={user.email ?? undefined}
+                  >
+                    {truncateEmail(user.email ?? "Signed in")}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playHaptic("click");
+                      void signOut();
+                    }}
+                    className="text-[10px] font-semibold text-slate-500 hover:text-rose-400 transition-colors whitespace-nowrap"
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    playHaptic("click");
+                    setShowAuthModal(true);
+                  }}
+                  className="px-2.5 py-1 rounded-full bg-poker-primary/10 border border-poker-primary/30 text-poker-primary text-[10px] font-bold uppercase tracking-wider whitespace-nowrap"
+                >
+                  Sign In
+                </button>
+              )}
+            </>
+          )}
+
           {isOffline ? (
             <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-semibold">
               <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
               Offline
             </span>
+          ) : step === "HOME" && !authLoading ? (
+            user ? (
+              <span
+                className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold"
+                title={user.email ?? undefined}
+              >
+                <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-[9px] font-black">
+                  {(user.email?.[0] ?? "?").toUpperCase()}
+                </span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700 text-slate-400 text-[10px] font-bold uppercase tracking-wider">
+                Guest
+              </span>
+            )
           ) : isInstalled ? (
             <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold uppercase tracking-wider">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
@@ -412,6 +478,13 @@ export function FourBigsApp() {
           platform={platform}
           onInstallClick={openInstallGuide}
           onDismiss={dismissBanner}
+        />
+      )}
+
+      {showAuthModal && (
+        <AuthModal
+          onDismiss={() => setShowAuthModal(false)}
+          onSuccess={() => setShowAuthModal(false)}
         />
       )}
 
